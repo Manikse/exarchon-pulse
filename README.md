@@ -35,7 +35,6 @@ EXARCHON-PULSE Engine є суверенним автономним вузлом 
 ### 1. Exarchon-Executive Reporter
 Автономна система спостереження та звітності 24/7:
 * Activity Tracker Daemon: Фоновий процес, який моніторить Git commit logs, оновлення у робочих директоріях та локальні Markdown-нотатки.
-* Grant & Institutional Reporter: Автоматичне агрегування даних у періодичні Executive Summaries та Changelog для грантових подач (Thiel Fellowship, 1517 Fund, USF, Brave1 тощо).
 * Build-in-Public Generator: Автономна підготовка чернеток постів для X (Twitter) / Telegram про хід розробки з механікою 1-Click Approve перед публікацією.
 
 ### 2. Exarchon-Dynamic Planner
