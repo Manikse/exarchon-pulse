@@ -34,24 +34,24 @@ EXARCHON-PULSE Engine є суверенним автономним вузлом 
 
 ## Core Sub-systems
 
-Модуль функціонально розділений на два взаємопов'язані контури:
+Модуль функціонально розділений на два взаємопов'язані контури:<br>
 
-[ Git Commits / Workspace Notes / Ideas ]
-                   │
-                   ▼
-┌─────────────────────────────────────────────────────┐
-│               Activity Tracker Daemon               │
-└──────────┬───────────────────────────────┬──────────┘
-           │                               │
-           ▼                               ▼
-┌───────────────────────────┐   ┌───────────────────────────┐
-│ Executive Reporter        │   │ Dynamic Planner           │
-│ - Activity 24/7 & Drafts  │   │ - Roadmap & Decision Q    │
-└──────────┬────────────────┘   └──────────┬────────────────┘
-           │                               │
-           └───────────────┬───────────────┘
-                           ▼
-              [ Telegram / CLI Approval ]
+[ Git Commits / Workspace Notes / Ideas ]<br>
+                   │<br>
+                   ▼<br>
+┌─────────────────────────────────────────────────────┐<br>
+│               Activity Tracker Daemon               │<br>
+└──────────┬───────────────────────────────┬──────────┘<br>
+           │                               │<br>
+           ▼                               ▼<br>
+┌───────────────────────────┐   ┌───────────────────────────┐<br>
+│ Executive Reporter        │   │ Dynamic Planner           │<br>
+│ - Activity 24/7 & Drafts  │   │ - Roadmap & Decision Q    │<br>
+└──────────┬────────────────┘   └──────────┬────────────────┘<br>
+           │                               │<br>
+           └───────────────┬───────────────┘<br>
+                           ▼<br>
+              [ Telegram / CLI Approval ]<br>
 
 ### 1. Exarchon-Executive Reporter
 Автономна система спостереження та звітності 24/7:
@@ -75,19 +75,19 @@ EXARCHON-PULSE Engine є суверенним автономним вузлом 
 
 ## Project Structure
 
-exarchon-pulse/
-├── config/
-│   ├── config.yaml          # Системна конфігурація та джерела
-│   └── roadmap.yaml         # Динамічна структура роадмапу
-├── data/                    # Локальний приватний шар стану (SQLite)
-├── src/
-│   ├── core/                # Bus & Exarchon Core Connectors
-│   ├── tracker/             # Git & File Watcher Daemons
-│   ├── reporter/            # Grant Reporter & Build-in-Public Generators
-│   ├── planner/             # Dynamic Roadmap & Decision Queue
-│   └── interface/           # Telegram Bot / CLI Interfaces
-├── main.py                  # Точка входу (Daemon + Telegram Bot)
-└── requirements.txt
+exarchon-pulse/<br>
+├── config/<br>
+│   ├── config.yaml          # Системна конфігурація та джерела<br>
+│   └── roadmap.yaml         # Динамічна структура роадмапу<br>
+├── data/                    # Локальний приватний шар стану (SQLite)<br>
+├── src/<br>
+│   ├── core/                # Bus & Exarchon Core Connectors<br>
+│   ├── tracker/             # Git & File Watcher Daemons<br>
+│   ├── reporter/            # Grant Reporter & Build-in-Public Generators<br>
+│   ├── planner/             # Dynamic Roadmap & Decision Queue<br>
+│   └── interface/           # Telegram Bot / CLI Interfaces<br>
+├── main.py                  # Точка входу (Daemon + Telegram Bot)<br>
+└── requirements.txt<br>
 
 ---
 
@@ -123,3 +123,10 @@ python main.py
 ## Author & Ecosystem
 
 Created by Manikse — Building autonomous execution infrastructure for the next era of AI.
+
+
+<div align="center"> 
+  <a href="https://ko-fi.com/manikse"> 
+    <img src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" width="200"/> 
+  </a> 
+</div>
