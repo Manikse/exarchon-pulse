@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+
+# Database & State
+*.db
+*.sqlite3
+data/
+
+# Environment & Credentials
+.env
+.env.local
+config/config.yaml
+
+# IDEs
+.vscode/
+.idea/

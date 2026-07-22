@@ -1,0 +1,35 @@
+version: "1.0"
+project: "Exarchon-Pulse Engine"
+current_phase: "Phase 1: Bootstrapping"
+
+phases:
+  - id: "phase_1"
+    title: "Phase 1: Core Engine Bootstrapping"
+    status: "in_progress"
+    milestones:
+      - id: "m1"
+        title: "Activity Tracker & Observer"
+        status: "in_progress"
+        tasks:
+          - id: "t1"
+            title: "Git log polling daemon"
+            completed: true
+          - id: "t2"
+            title: "Markdown notes watcher"
+            completed: false
+      - id: "m2"
+        title: "Dynamic Planner Integration"
+        status: "pending"
+        tasks:
+          - id: "t3"
+            title: "Decision Queue Telegram Interface"
+            completed: false
+
+decision_queue:
+  - id: "dec_001"
+    question: "Обрати брокер повідомлень для Ядра Exarchon"
+    options:
+      A: "In-memory Async Queue (Локально, нуль залежностей)"
+      B: "NATS / Redis (Мережева масштабованість)"
+    status: "pending"
+    context: "Потрібно для проектування модуля bus.py у майбутньому Ядрі."
