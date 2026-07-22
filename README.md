@@ -32,27 +32,6 @@ EXARCHON-PULSE Engine є суверенним автономним вузлом 
 
 ---
 
-## Core Sub-systems
-
-Модуль функціонально розділений на два взаємопов'язані контури:<br>
-
-[ Git Commits / Workspace Notes / Ideas ]<br>
-                   │<br>
-                   ▼<br>
-┌─────────────────────────────────────────────────────┐<br>
-│               Activity Tracker Daemon               │<br>
-└──────────┬───────────────────────────────┬──────────┘<br>
-           │                               │<br>
-           ▼                               ▼<br>
-┌───────────────────────────┐   ┌───────────────────────────┐<br>
-│ Executive Reporter        │   │ Dynamic Planner           │<br>
-│ - Activity 24/7 & Drafts  │   │ - Roadmap & Decision Q    │<br>
-└──────────┬────────────────┘   └──────────┬────────────────┘<br>
-           │                               │<br>
-           └───────────────┬───────────────┘<br>
-                           ▼<br>
-              [ Telegram / CLI Approval ]<br>
-
 ### 1. Exarchon-Executive Reporter
 Автономна система спостереження та звітності 24/7:
 * Activity Tracker Daemon: Фоновий процес, який моніторить Git commit logs, оновлення у робочих директоріях та локальні Markdown-нотатки.
