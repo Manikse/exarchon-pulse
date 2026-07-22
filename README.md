@@ -98,10 +98,9 @@ python main.py
 
 ---
 
-## Author & Ecosystem
-
-Created by Manikse — Building autonomous execution infrastructure for the next era of AI.
-
+## Core Team
+* **[manikse](https://github.com/manikse)** — Creator & Lead Architect
+* **[CAH4E3](https://github.com/CAH4E3)** — Core Contributor / Developer
 
 <div align="center"> 
   <a href="https://ko-fi.com/manikse"> 
