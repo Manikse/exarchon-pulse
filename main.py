@@ -1,190 +1,234 @@
 import os
 import time
-import subprocess
-import asyncio
+import threading
 import logging
-from typing import List, Dict
+import cmd
 import yaml
+from typing import List, Dict
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+# Підключаємо модулі парсингу
+from src.tracker.git_watcher import GitActivityTracker
+from src.tracker.notes_watcher import NotesTracker
 
-# Налаштування логування
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(message)s")
-logger = logging.getLogger("Exarchon-Pulse")
+# Підключаємо базу даних
+from src.core.database import init_db, get_connection
 
-# Конфігурація (замініть на власні значення або .env)
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID_HERE")
-REPO_PATH = os.getenv("REPO_PATH", ".")
+logging.basicConfig(level=logging.WARNING, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("PulseCore")
+
 ROADMAP_PATH = "config/roadmap.yaml"
+REPO_PATH = os.getenv("REPO_PATH", ".")
 
 
-class GitActivityTracker:
-    """Моніторинг Git-комітів у робочій директорії."""
-    def __init__(self, repo_path: str):
-        self.repo_path = repo_path
-        self.last_commit_hash = self.get_latest_commit_hash()
-
-    def get_latest_commit_hash(self) -> str:
-        try:
-            result = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=self.repo_path,
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            return result.stdout.strip()
-        except Exception as e:
-            logger.error(f"Помилка отримання Git hash: {e}")
-            return ""
-
-    def get_commit_details(self, commit_hash: str) -> Dict[str, str]:
-        try:
-            result = subprocess.run(
-                ["git", "log", "-1", "--pretty=format:%s%n%b", commit_hash],
-                cwd=self.repo_path,
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            message = result.stdout.strip()
-            return {"hash": commit_hash[:7], "message": message}
-        except Exception as e:
-            logger.error(f"Помилка читання деталізації коміту: {e}")
-            return {"hash": commit_hash, "message": "Оновлення коду"}
-
-    def check_new_commits(self) -> List[Dict[str, str]]:
-        current_hash = self.get_latest_commit_hash()
-        if current_hash and current_hash != self.last_commit_hash:
-            self.last_commit_hash = current_hash
-            return [self.get_commit_details(current_hash)]
-        return []
-
-
-class RoadmapEngine:
-    """Управління та парсинг Динамічного Роадмапу."""
-    def __init__(self, yaml_path: str):
-        self.yaml_path = yaml_path
-
-    def load_roadmap(self) -> dict:
-        if not os.path.exists(self.yaml_path):
+class StateEngine:
+    @staticmethod
+    def load_roadmap() -> dict:
+        if not os.path.exists(ROADMAP_PATH):
             return {}
-        with open(self.yaml_path, "r", encoding="utf-8") as f:
+        with open(ROADMAP_PATH, "r", encoding="utf-8") as f:
             return yaml.safe_load(f)
 
-    def get_pending_decisions(self) -> List[dict]:
-        data = self.load_roadmap()
-        return [d for d in data.get("decision_queue", []) if d.get("status") == "pending"]
+    @staticmethod
+    def save_roadmap(data: dict):
+        os.makedirs(os.path.dirname(ROADMAP_PATH), exist_ok=True)
+        with open(ROADMAP_PATH, "w", encoding="utf-8") as f:
+            yaml.dump(data, f, allow_unicode=True, sort_keys=False)
 
 
-# --- Telegram Bot Handlers ---
+class ActivityTrackerDaemon(threading.Thread):
+    """Фоновий демон, що використовує модулі парсингу та зберігає стан у БД."""
+    def __init__(self, repo_path: str):
+        super().__init__(daemon=True)
+        self.repo_path = repo_path
+        
+        # Витягуємо профіль з БД, якщо він вже був заданий, інакше дефолт
+        target_user = "manikse"
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM system_config WHERE key = 'target_github_user'")
+            row = cursor.fetchone()
+            if row:
+                target_user = row[0]
+            conn.close()
+        except Exception:
+            pass
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "⚡ Exarchon-Pulse Engine онлайн.\n"
-        "Команди:\n"
-        "/decisions — Стратегічна черга рішень (Decision Queue)\n"
-        "/status — Поточний стан роадмапу"
+        self.git_tracker = GitActivityTracker(target_user=target_user)
+        self.notes_tracker = NotesTracker(repo_path)
+
+    def run(self):
+        while True:
+            time.sleep(10) # Перевірка кожні 10 секунд
+            
+            new_commits = self.git_tracker.get_new_activity()
+            new_notes = self.notes_tracker.get_new_activity()
+            
+            # Якщо є нові дані, відкриваємо з'єднання з БД
+            if new_commits or new_notes:
+                conn = get_connection()
+                cursor = conn.cursor()
+                
+                # Парсимо та записуємо Git
+                for commit in new_commits:
+                    print(f"\n\n[DAEMON] 🔔 Git Code Update (Commit: {commit['hash']}): {commit['subject']}")
+                    try:
+                        # INSERT OR IGNORE захищає від дублікатів по commit_hash
+                        cursor.execute('''
+                            INSERT OR IGNORE INTO git_activity (commit_hash, author, date, message)
+                            VALUES (?, ?, ?, ?)
+                        ''', (commit['hash'], commit.get('author', 'System'), commit.get('date', ''), commit['subject']))
+                    except Exception as e:
+                        logger.error(f"Помилка запису Git у БД: {e}")
+                    
+                    print("Pulse> ", end="", flush=True)
+
+                # Парсимо та записуємо Нотатки (Markdown)
+                for note in new_notes:
+                    print(f"\n\n[DAEMON] 📝 Note {note['action']}: {note['file']}")
+                    try:
+                        cursor.execute('''
+                            INSERT INTO notes_updates (file_path, last_modified, status)
+                            VALUES (?, ?, ?)
+                        ''', (note['file'], time.time(), note.get('action', 'updated')))
+                    except Exception as e:
+                        logger.error(f"Помилка запису Notes у БД: {e}")
+                        
+                    print("Pulse> ", end="", flush=True)
+                
+                # Зберігаємо транзакцію і закриваємо з'єднання
+                conn.commit()
+                conn.close()
+
+
+class PulseConsole(cmd.Cmd):
+    intro = (
+        "\n======================================================\n"
+        " EXARCHON-PULSE ENGINE (Low-Level Control Interface)\n"
+        "======================================================\n"
+        " Daemon is monitoring Git & Local Files.\n"
+        " Type 'help' or '?' to list commands.\n"
     )
+    prompt = "Pulse> "
 
-async def decisions_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    engine = RoadmapEngine(ROADMAP_PATH)
-    decisions = engine.get_pending_decisions()
+    def do_status(self, arg):
+        """Показати поточний статус розробки з роадмапу."""
+        data = StateEngine.load_roadmap()
+        phase = data.get("current_phase", "Unknown")
+        print(f"\n[STATUS] Поточний етап: {phase}")
+        print("[STATUS] Activity Trackers (Git, FS, DB): ONLINE")
 
-    if not decisions:
-        await update.message.reply_text("✅ Активних заблокованих рішень немає. Система працює автономно.")
-        return
+    def do_decisions(self, arg):
+        """Показати чергу стратегічних рішень."""
+        data = StateEngine.load_roadmap()
+        decisions = [d for d in data.get("decision_queue", []) if d.get("status") == "pending"]
+        
+        if not decisions:
+            print("\n[DECISIONS] Черга чиста.")
+            return
 
-    for dec in decisions:
-        keyboard = [
-            [
-                InlineKeyboardButton(f"Варіант А", callback_data=f"dec_{dec['id']}_A"),
-                InlineKeyboardButton(f"Варіант Б", callback_data=f"dec_{dec['id']}_B"),
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        msg_text = (
-            f"🧠 **DECISION QUEUE [{dec['id']}]**\n\n"
-            f"**Питання:** {dec['question']}\n\n"
-            f"**Контекст:** {dec['context']}\n\n"
-            f"**A:** {dec['options']['A']}\n"
-            f"**B:** {dec['options']['B']}"
-        )
-        await update.message.reply_text(msg_text, parse_mode="Markdown", reply_markup=reply_markup)
+        print("\n[DECISIONS] Очікують вашого вирішення:")
+        for dec in decisions:
+            print(f" ID: {dec['id']} | {dec['question']}")
+            for key, val in dec['options'].items():
+                print(f"   {key}: {val}")
 
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    data = query.data
-    if data.startswith("pub_approve"):
-        await query.edit_message_text(text=f"{query.message.text}\n\n✅ **Опубліковано в публічні канали!**")
-    elif data.startswith("pub_reject"):
-        await query.edit_message_text(text=f"{query.message.text}\n\n❌ **Відхилено.**")
-    elif data.startswith("dec_"):
-        _, dec_id, choice = data.split("_")
-        await query.edit_message_text(
-            text=f"{query.message.text}\n\n🎯 **Прийнято рішення:** Варіант {choice}. Роадмап оновлено."
-        )
-
-
-# --- Background Daemon Worker ---
-
-async def background_tracker(app: Application):
-    """Фоновий процес, що моніторить коміти та формує чернетки постів."""
-    tracker = GitActivityTracker(REPO_PATH)
-    logger.info("Activity Tracker Daemon запущено...")
-
-    while True:
-        await asyncio.sleep(10)  # Інтервал перевірки (10 сек для тесту)
-        commits = tracker.check_new_commits()
-
-        for commit in commits:
-            # Створення чернетки для Build-in-Public
-            draft_text = (
-                f"🚀 **Exarchon Progress Update**\n\n"
-                f"Зафіксовано новий прогрес у ядрі:\n"
-                f"• `{commit['hash']}`: {commit['message']}\n\n"
-                f"_Опублікувати цей апдейт у соцмережах?_"
-            )
-            keyboard = InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton("👍 Approve & Publish", callback_data=f"pub_approve_{commit['hash']}"),
-                    InlineKeyboardButton("👎 Reject", callback_data=f"pub_reject_{commit['hash']}"),
-                ]
-            ])
-
-            if TELEGRAM_CHAT_ID and TELEGRAM_CHAT_ID != "YOUR_CHAT_ID_HERE":
-                await app.bot.send_message(
-                    chat_id=TELEGRAM_CHAT_ID,
-                    text=draft_text,
-                    parse_mode="Markdown",
-                    reply_markup=keyboard
-                )
+    def do_diagnostics(self, arg):
+        """Показати діагностику: ціль спостереження, записи в БД та статус."""
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            
+            # Перевіряємо цільовий профіль
+            cursor.execute("SELECT value FROM system_config WHERE key = 'target_github_user'")
+            row = cursor.fetchone()
+            target = row[0] if row else "manikse (default)"
+            
+            # Рахуємо записи в таблицях
+            cursor.execute("SELECT COUNT(*) FROM git_activity")
+            commits_count = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM notes_updates")
+            notes_count = cursor.fetchone()[0]
+            
+            conn.close()
+            
+            print(f"\n[DIAGNOSTICS] -------------------")
+            print(f" Цільовий GitHub профіль : {target}")
+            print(f" Збережено комітів у БД   : {commits_count}")
+            print(f" Збережено нотаток у БД  : {notes_count}")
+            print(f" Статус потоку демона    : ACTIVE (робочий цикл: 10с)")
+            print(f"-----------------------------------")
+        except Exception as e:
+            print(f"\n[ERROR] Помилка діагностики бази даних: {e}")
 
 
-# --- Main Application Loop ---
+    def do_decide(self, arg):
+        """Прийняти рішення: decide <ID> <A/B>"""
+        args = arg.split()
+        if len(args) != 2:
+            print("[ERROR] Використовуйте: decide <ID> <Вибір>")
+            return
+        
+        dec_id, choice = args[0], args[1].upper()
+        data = StateEngine.load_roadmap()
+        
+        found = False
+        for dec in data.get("decision_queue", []):
+            if dec["id"] == dec_id and dec["status"] == "pending":
+                dec["status"] = "resolved"
+                dec["selected_option"] = choice
+                found = True
+                print(f"\n[ACTION] Рішення {dec_id} прийнято ({choice}). Стан зафіксовано.")
+                break
+        
+        if found:
+            StateEngine.save_roadmap(data)
+
+    def do_idea(self, arg):
+        """Записати нову ідею або план: idea <твій текст>"""
+        if not arg:
+            print("[ERROR] Ти нічого не написав. Приклад: idea додати інтеграцію з OpenAI")
+            return
+        
+        print(f"\n[BRAIN] Ідею зафіксовано: {arg}")
+        print("[BRAIN] Очікую на підключення інтелектуального модуля для аналізу.")
+
+    def do_set_target(self, arg):
+        """Встановити GitHub профіль для парсингу: set_target <username>"""
+        if not arg:
+            print("[ERROR] Вкажіть ім'я користувача. Приклад: set_target manikse")
+            return
+        
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            # Використовуємо REPLACE, якщо таблиця створена правильно (з UNIQUE key)
+            cursor.execute("INSERT OR REPLACE INTO system_config (key, value) VALUES ('target_github_user', ?)", (arg,))
+            conn.commit()
+            conn.close()
+            print(f"\n[CONFIG] Цільовий профіль змінено на: {arg}")
+            print("[SYSTEM] Зміни набудуть чинності після перезапуску ядра.")
+        except Exception as e:
+            print(f"\n[ERROR] Не вдалося зберегти профіль: {e}")
+
+    def do_exit(self, arg):
+        """Вийти."""
+        print("\n[SYSTEM] Завершення роботи...")
+        return True
+
 
 def main():
-    if TELEGRAM_BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
-        logger.error("Будь ласка, вкажіть ваш TELEGRAM_BOT_TOKEN у коді або середовищі!")
-        return
-
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-
-    # Реєстрація хендлерів
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("decisions", decisions_command))
-    app.add_handler(CallbackQueryHandler(button_callback))
-
-    # Запуск фонового демона разом із ботом
-    loop = asyncio.get_event_loop()
-    loop.create_task(background_tracker(app))
-
-    logger.info("Exarchon-Pulse Engine повністю запущено.")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Ініціалізація бази даних перед стартом
+    init_db()
+    
+    tracker = ActivityTrackerDaemon(REPO_PATH)
+    tracker.start()
+    
+    try:
+        PulseConsole().cmdloop()
+    except KeyboardInterrupt:
+        print("\n[SYSTEM] Зупинка.")
 
 if __name__ == "__main__":
     main()
