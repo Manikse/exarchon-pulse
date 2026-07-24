@@ -14,7 +14,7 @@
 ---
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v0.1.0--alpha-blue">
+  <img src="https://img.shields.io/badge/version-v0.1.1--alpha-blue">
   <img src="https://img.shields.io/badge/status-bootstrapping-orange">
   <img src="https://img.shields.io/badge/license-MIT-green">
   <img src="https://img.shields.io/badge/ecosystem-Exarchon-purple">
@@ -64,7 +64,7 @@ exarchon-pulse/<br>
 │   ├── reporter/            # Grant Reporter & Build-in-Public Generators<br>
 │   ├── planner/             # Dynamic Roadmap & Decision Queue<br>
 │   └── interface/           # Telegram Bot / CLI Interfaces<br>
-├── main.py                  # Точка входу (Daemon + Telegram Bot)<br>
+├── main.py                  # Точка входу (Daemon)<br>
 └── requirements.txt<br>
 
 ---
