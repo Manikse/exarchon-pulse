@@ -55,25 +55,58 @@ class GitActivityTracker:
         commits = payload.get("commits", [])
         commits_count = len(commits)
 
-        commit_msgs = [c.get("message", "").split("\n")[0] for c in commits]
-        detailed_changes_text = ""
-
         if commits_count > 0:
-            for commit in commits:
-                commit_url = commit.get("url")
-                if commit_url:
-                    diff_data = self._fetch_repo_diff(repo_name, commit_url)
-                    commit["detailed_diff"] = diff_data
-                    detailed_changes_text += f"\n--- Commit: {commit.get('message', '').split('\n')[0]} ---\n{diff_data}"
-                    time.sleep(0.3)  # Rate limit protection
-            summary = f"Updated {repo_name}: " + " | ".join(commit_msgs)
+            # Нормальний сценарій: коміти є в payload
+            commit_msgs = [c.get("message", "").split("\n")[0] for c in commits]
+            summary = " | ".join(commit_msgs)
+
+            first_commit_url = commits[0].get("url")
+            diff_data = (
+                self._fetch_repo_diff(repo_name, first_commit_url)
+                if first_commit_url
+                else ""
+            )
+            payload["detailed_diff"] = diff_data
+
+            return summary, commits_count, json.dumps(payload)
         else:
+            # Сценарій Web Edit / Sync: комітів немає в payload.
+            # Робимо активний запит за останнім фактичним комітом репозиторію.
+            try:
+                commits_api = f"https://api.github.com/repos/{repo_name}/commits"
+                resp = requests.get(commits_api, headers=self.headers, timeout=5)
+
+                if resp.status_code == 200 and resp.json():
+                    latest_commit_data = resp.json()[0]
+                    # Витягуємо повідомлення з об'єкта commit
+                    msg = (
+                        latest_commit_data.get("commit", {})
+                        .get("message", "")
+                        .split("\n")[0]
+                    )
+                    commit_url = latest_commit_data.get("url")
+
+                    diff_data = (
+                        self._fetch_repo_diff(repo_name, commit_url)
+                        if commit_url
+                        else ""
+                    )
+                    payload["detailed_diff"] = diff_data
+
+                    summary = (
+                        msg
+                        if msg
+                        else f"Direct update in {repo_name} (branch sync/web edit)"
+                    )
+                    return summary, 1, json.dumps(payload)
+            except Exception as e:
+                logger.debug(f"Failed to fetch fallback commit for {repo_name}: {e}")
+
+            # Якщо навіть резервний запит впав
             diff_data = self._fetch_repo_diff(repo_name)
             payload["detailed_diff"] = diff_data
             summary = f"Direct update in {repo_name} (branch sync/web edit)"
-            commits_count = 1
-
-        return summary, commits_count, json.dumps(payload)
+            return summary, 1, json.dumps(payload)
 
     def get_new_activity(self):
         new_events = []
