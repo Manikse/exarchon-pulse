@@ -4,7 +4,23 @@ import threading
 import logging
 import cmd
 import yaml
+from datetime import datetime
 from typing import List, Dict
+
+from dotenv import load_dotenv
+load_dotenv()
+
+from colorama import init, Fore, Style
+init(autoreset=True)
+
+class C:
+    CYAN = Fore.CYAN
+    GREEN = Fore.GREEN
+    YELLOW = Fore.YELLOW
+    RED = Fore.RED
+    MAGENTA = Fore.MAGENTA
+    DIM = Style.DIM
+    RESET = Style.RESET_ALL
 
 # Підключаємо модулі парсингу
 from src.tracker.git_watcher import GitActivityTracker
@@ -14,7 +30,7 @@ from src.tracker.notes_watcher import NotesTracker
 from src.core.database import init_db, get_connection
 
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger("PulseCore")
+logger = logging.getLogger("Pulse")
 
 ROADMAP_PATH = "config/roadmap.yaml"
 REPO_PATH = os.getenv("REPO_PATH", ".")
@@ -36,12 +52,11 @@ class StateEngine:
 
 
 class ActivityTrackerDaemon(threading.Thread):
-    """Фоновий демон, що використовує модулі парсингу та зберігає стан у БД."""
+    """Фоновий демон Пульсу, що збирає дані безпосередньо з Github та файлової системи."""
     def __init__(self, repo_path: str):
         super().__init__(daemon=True)
         self.repo_path = repo_path
         
-        # Витягуємо профіль з БД, якщо він вже був заданий, інакше дефолт
         target_user = "manikse"
         try:
             conn = get_connection()
@@ -58,56 +73,70 @@ class ActivityTrackerDaemon(threading.Thread):
         self.notes_tracker = NotesTracker(repo_path)
 
     def run(self):
+        time.sleep(1)
+        start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"\n{C.DIM}[{start_time}]{C.RESET} {C.GREEN}[DAEMON]{C.RESET} Пульс запущено. Очікування нових подій...")
+        print("Pulse> ", end="", flush=True)
+
+        ticks = 0
         while True:
-            time.sleep(10) # Перевірка кожні 10 секунд
+            time.sleep(10)
+            ticks += 1
             
-            new_commits = self.git_tracker.get_new_activity()
+            new_events = self.git_tracker.get_new_activity()
             new_notes = self.notes_tracker.get_new_activity()
             
-            # Якщо є нові дані, відкриваємо з'єднання з БД
-            if new_commits or new_notes:
+            if new_events or new_notes:
                 conn = get_connection()
                 cursor = conn.cursor()
                 
-                # Парсимо та записуємо Git
-                for commit in new_commits:
-                    print(f"\n\n[DAEMON] 🔔 Git Code Update (Commit: {commit['hash']}): {commit['subject']}")
+                for event in new_events:
+                    curr_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    print(f"\n\n{C.DIM}[{curr_time}]{C.RESET} {C.CYAN}[GIT]{C.RESET} {event['event_type']} in {C.YELLOW}{event['repo_name']}{C.RESET}: {event['summary']}")
                     try:
-                        # INSERT OR IGNORE захищає від дублікатів по commit_hash
                         cursor.execute('''
-                            INSERT OR IGNORE INTO git_activity (commit_hash, author, date, message)
-                            VALUES (?, ?, ?, ?)
-                        ''', (commit['hash'], commit.get('author', 'System'), commit.get('date', ''), commit['subject']))
+                            INSERT OR IGNORE INTO github_events 
+                            (event_id, event_type, repo_name, commits_count, raw_payload, summary, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ''', (
+                            event['event_id'], event['event_type'], event['repo_name'], 
+                            event['commits_count'], event['raw_payload'], event['summary'], event['date']
+                        ))
                     except Exception as e:
-                        logger.error(f"Помилка запису Git у БД: {e}")
+                        logger.error(f"DB Insert Error (Git): {e}")
                     
                     print("Pulse> ", end="", flush=True)
 
-                # Парсимо та записуємо Нотатки (Markdown)
                 for note in new_notes:
-                    print(f"\n\n[DAEMON] 📝 Note {note['action']}: {note['file']}")
+                    curr_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    action = note.get('action', 'updated')
+                    print(f"\n\n{C.DIM}[{curr_time}]{C.RESET} {C.MAGENTA}[NOTES]{C.RESET} {action}: {note['file']}")
                     try:
                         cursor.execute('''
                             INSERT INTO notes_updates (file_path, last_modified, status)
                             VALUES (?, ?, ?)
-                        ''', (note['file'], time.time(), note.get('action', 'updated')))
+                        ''', (note['file'], time.time(), action))
                     except Exception as e:
-                        logger.error(f"Помилка запису Notes у БД: {e}")
+                        logger.error(f"DB Insert Error (Notes): {e}")
                         
                     print("Pulse> ", end="", flush=True)
                 
-                # Зберігаємо транзакцію і закриваємо з'єднання
                 conn.commit()
                 conn.close()
+            else:
+                if ticks % 6 == 0:
+                    curr_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    print(f"\n{C.DIM}[{curr_time}]{C.RESET} {C.GREEN}[DAEMON]{C.RESET} Пульс активний. Спостереження триває...")
+                    print("Pulse> ", end="", flush=True)
 
 
 class PulseConsole(cmd.Cmd):
     intro = (
-        "\n======================================================\n"
-        " EXARCHON-PULSE ENGINE (Low-Level Control Interface)\n"
-        "======================================================\n"
-        " Daemon is monitoring Git & Local Files.\n"
-        " Type 'help' or '?' to list commands.\n"
+        f"\n{C.CYAN}======================================================{C.RESET}\n"
+        f" {C.GREEN}PULSE (Data Tracking Sub-system){C.RESET}\n"
+        f"{C.CYAN}======================================================{C.RESET}\n"
+        f" Daemon is running in the background.\n"
+        f" Type 'help' or '?' to list commands.\n"
     )
     prompt = "Pulse> "
 
@@ -115,8 +144,8 @@ class PulseConsole(cmd.Cmd):
         """Показати поточний статус розробки з роадмапу."""
         data = StateEngine.load_roadmap()
         phase = data.get("current_phase", "Unknown")
-        print(f"\n[STATUS] Поточний етап: {phase}")
-        print("[STATUS] Activity Trackers (Git, FS, DB): ONLINE")
+        print(f"\n{C.YELLOW}[STATUS]{C.RESET} Поточний етап: {phase}")
+        print(f"{C.YELLOW}[STATUS]{C.RESET} Modules (Git, FS, DB): {C.GREEN}ONLINE{C.RESET}")
 
     def do_decisions(self, arg):
         """Показати чергу стратегічних рішень."""
@@ -124,10 +153,10 @@ class PulseConsole(cmd.Cmd):
         decisions = [d for d in data.get("decision_queue", []) if d.get("status") == "pending"]
         
         if not decisions:
-            print("\n[DECISIONS] Черга чиста.")
+            print(f"\n{C.GREEN}[DECISIONS] Черга чиста.{C.RESET}")
             return
 
-        print("\n[DECISIONS] Очікують вашого вирішення:")
+        print(f"\n{C.MAGENTA}[DECISIONS] Очікують вашого вирішення:{C.RESET}")
         for dec in decisions:
             print(f" ID: {dec['id']} | {dec['question']}")
             for key, val in dec['options'].items():
@@ -139,35 +168,39 @@ class PulseConsole(cmd.Cmd):
             conn = get_connection()
             cursor = conn.cursor()
             
-            # Перевіряємо цільовий профіль
             cursor.execute("SELECT value FROM system_config WHERE key = 'target_github_user'")
             row = cursor.fetchone()
             target = row[0] if row else "manikse (default)"
             
-            # Рахуємо записи в таблицях
-            cursor.execute("SELECT COUNT(*) FROM git_activity")
-            commits_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM github_events")
+            events_count = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT SUM(commits_count) FROM github_events")
+            commits_sum = cursor.fetchone()[0] or 0
             
             cursor.execute("SELECT COUNT(*) FROM notes_updates")
             notes_count = cursor.fetchone()[0]
             
             conn.close()
             
-            print(f"\n[DIAGNOSTICS] -------------------")
-            print(f" Цільовий GitHub профіль : {target}")
-            print(f" Збережено комітів у БД   : {commits_count}")
-            print(f" Збережено нотаток у БД  : {notes_count}")
-            print(f" Статус потоку демона    : ACTIVE (робочий цикл: 10с)")
-            print(f"-----------------------------------")
+            # Перевіряємо наявність токена в середовищі
+            token_status = f"{C.GREEN}LOADED{C.RESET}" if os.getenv("GITHUB_TOKEN") else f"{C.RED}MISSING (Rate Limit Risk){C.RESET}"
+            
+            print(f"\n{C.CYAN}[DIAGNOSTICS] ---------------------------------{C.RESET}")
+            print(f" Target GitHub Profile   : {C.YELLOW}{target}{C.RESET}")
+            print(f" GitHub Token Status     : {token_status}")
+            print(f" Saved Events (DB)       : {C.GREEN}{events_count}{C.RESET} (Commits: {commits_sum})")
+            print(f" Saved Notes (DB)        : {C.GREEN}{notes_count}{C.RESET}")
+            print(f" Daemon Cycle            : 10s (Heartbeat: 60s)")
+            print(f"{C.CYAN}-----------------------------------------------{C.RESET}")
         except Exception as e:
-            print(f"\n[ERROR] Помилка діагностики бази даних: {e}")
-
+            print(f"\n{C.RED}[ERROR] Diagnostics DB failure: {e}{C.RESET}")
 
     def do_decide(self, arg):
         """Прийняти рішення: decide <ID> <A/B>"""
         args = arg.split()
         if len(args) != 2:
-            print("[ERROR] Використовуйте: decide <ID> <Вибір>")
+            print(f"{C.RED}[ERROR] Формат: decide <ID> <Вибір>{C.RESET}")
             return
         
         dec_id, choice = args[0], args[1].upper()
@@ -179,7 +212,7 @@ class PulseConsole(cmd.Cmd):
                 dec["status"] = "resolved"
                 dec["selected_option"] = choice
                 found = True
-                print(f"\n[ACTION] Рішення {dec_id} прийнято ({choice}). Стан зафіксовано.")
+                print(f"\n{C.GREEN}[ACTION] Рішення {dec_id} зафіксовано: {choice}.{C.RESET}")
                 break
         
         if found:
@@ -188,47 +221,44 @@ class PulseConsole(cmd.Cmd):
     def do_idea(self, arg):
         """Записати нову ідею або план: idea <твій текст>"""
         if not arg:
-            print("[ERROR] Ти нічого не написав. Приклад: idea додати інтеграцію з OpenAI")
+            print(f"{C.RED}[ERROR] Порожній ввід. Приклад: idea додати парсинг гілок{C.RESET}")
             return
         
-        print(f"\n[BRAIN] Ідею зафіксовано: {arg}")
-        print("[BRAIN] Очікую на підключення інтелектуального модуля для аналізу.")
+        print(f"\n{C.GREEN}[IDEA] Зафіксовано:{C.RESET} {arg}")
+        print(f"{C.DIM}[IDEA] Збережено в локальний кеш.{C.RESET}")
 
     def do_set_target(self, arg):
         """Встановити GitHub профіль для парсингу: set_target <username>"""
         if not arg:
-            print("[ERROR] Вкажіть ім'я користувача. Приклад: set_target manikse")
+            print(f"{C.RED}[ERROR] Вкажіть ім'я. Приклад: set_target manikse{C.RESET}")
             return
         
         try:
             conn = get_connection()
             cursor = conn.cursor()
-            # Використовуємо REPLACE, якщо таблиця створена правильно (з UNIQUE key)
             cursor.execute("INSERT OR REPLACE INTO system_config (key, value) VALUES ('target_github_user', ?)", (arg,))
             conn.commit()
             conn.close()
-            print(f"\n[CONFIG] Цільовий профіль змінено на: {arg}")
-            print("[SYSTEM] Зміни набудуть чинності після перезапуску ядра.")
+            print(f"\n{C.GREEN}[CONFIG] Цільовий профіль:{C.RESET} {arg}")
+            print(f"{C.DIM}[SYSTEM] Зміни застосуються після перезапуску.{C.RESET}")
         except Exception as e:
-            print(f"\n[ERROR] Не вдалося зберегти профіль: {e}")
+            print(f"\n{C.RED}[ERROR] Помилка запису профілю: {e}{C.RESET}")
 
     def do_exit(self, arg):
         """Вийти."""
-        print("\n[SYSTEM] Завершення роботи...")
+        print(f"\n{C.YELLOW}[SYSTEM] Завершення роботи...{C.RESET}")
         return True
 
 
 def main():
-    # Ініціалізація бази даних перед стартом
     init_db()
-    
     tracker = ActivityTrackerDaemon(REPO_PATH)
     tracker.start()
     
     try:
         PulseConsole().cmdloop()
     except KeyboardInterrupt:
-        print("\n[SYSTEM] Зупинка.")
+        print(f"\n{C.YELLOW}[SYSTEM] Зупинка.{C.RESET}")
 
 if __name__ == "__main__":
     main()

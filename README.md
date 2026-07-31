@@ -14,8 +14,7 @@
 ---
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-v0.1.1--alpha-blue">
-  <img src="https://img.shields.io/badge/status-bootstrapping-orange">
+  <img src="https://img.shields.io/badge/version-v0.1.2--alpha-blue">
   <img src="https://img.shields.io/badge/license-MIT-green">
   <img src="https://img.shields.io/badge/ecosystem-Exarchon-purple">
 </p>
@@ -80,8 +79,6 @@ pip install -r requirements.txt
 
 ### 2. Environment Configuration
 Створіть файл .env на основі .env.template:
-TELEGRAM_BOT_TOKEN="your_bot_token"
-TELEGRAM_CHAT_ID="your_chat_id"
 REPO_PATH="."
 
 ### 3. Run the Engine
@@ -89,19 +86,19 @@ python main.py
 
 ---
 
-## Ecosystem Roadmap
+# Pulse Roadmap
 
-- [x] Phase 1: Foundation & Bootstrapping - Git Activity Tracker, Decision Queue Telegram Interface, YAML/DB state engine.
-- [ ] Phase 2: Analytics & Grant Pipelines - Automated Markdown parsing and Executive Summary generation for funders.
-- [ ] Phase 3: Dynamic Scheduler Engine - Adaptive daily task redistribution based on velocity metrics.
-- [ ] Phase 4: Exarchon Core Integration - Attaching Core Connectors and handing over execution control to the main Exarchon Kernel workspace.
+## Phase 1: Core Engine & Data Collection (Current)
+- [x] CLI Control Interface (PulseConsole)
+- [x] Background Daemon Architecture & SQLite State Management
+- [ ] GitHub Activity Tracker (Assigned to @CAH4E3-SHO)
+- [ ] Local File & Notes Tracker
 
+## Phase 2: Context Filtering & AI Intelligence
+- [ ] Raw JSON Payload Summarizer (LLM Integration)
+- [ ] Multi-source Activity Aggregator
+- [ ] Automated Daily/Weekly Report Generator
 ---
-
-## Author & Ecosystem
-
-Created by Manikse — Building autonomous execution infrastructure for the next era of AI.
-
 
 <div align="center"> 
   <a href="https://ko-fi.com/manikse"> 

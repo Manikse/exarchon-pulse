@@ -13,14 +13,18 @@ def init_db():
     cursor = conn.cursor()
 
     # Таблиця для відстеження Git-комітів
+    # Таблиця для глибокого аналізу GitHub-активності (Ready for LLM)
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS git_activity (
+        CREATE TABLE IF NOT EXISTS github_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            commit_hash TEXT UNIQUE NOT NULL,
-            author TEXT,
-            date TEXT,
-            message TEXT,
-            processed BOOLEAN DEFAULT 0
+            event_id TEXT UNIQUE NOT NULL,       -- Унікальний ID події з GitHub
+            event_type TEXT NOT NULL,            -- PushEvent, IssuesEvent, PullRequestEvent
+            repo_name TEXT NOT NULL,             -- Де саме відбулася дія
+            commits_count INTEGER DEFAULT 0,     -- Кількість комітів (якщо це Push)
+            raw_payload TEXT,                    -- Зберігаємо ВЕСЬ JSON для майбутнього ШІ
+            summary TEXT,                        -- Згенероване базове резюме для поточного CLI
+            created_at TEXT NOT NULL,
+            analyzed_by_ai BOOLEAN DEFAULT 0     -- Флаг для майбутнього ядра Exarchon
         )
     ''')
 
@@ -46,6 +50,17 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    # Таблиця для системних налаштувань (цільовий профіль GitHub, тощо)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS system_config (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    ''')
+
+    # Встановлюємо дефолтне значення, щоб система знала за ким стежити
+    cursor.execute("INSERT OR IGNORE INTO system_config (key, value) VALUES ('target_github_user', 'manikse')")
 
     conn.commit()
     conn.close()
