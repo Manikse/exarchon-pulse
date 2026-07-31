@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from src.reporter.grant_generator import ReportGenerator
 from colorama import init, Fore, Style
 
 init(autoreset=True)
@@ -199,6 +200,21 @@ class PulseConsole(cmd.Cmd):
             print(f"\n{C.RED}[ERROR] Помилка генерації звіту: {e}{C.RESET}")
         finally:
             conn.close()
+
+    def do_export(self, arg):
+        """Експортувати повний Markdown-звіт. Використання: export"""
+        print(f"\n{C.YELLOW}[REPORT]{C.RESET} Генерація розширеного Markdown-звіту...")
+        generator = ReportGenerator()
+        filepath = generator.generate_markdown_report()
+
+        if filepath:
+            print(
+                f"{C.GREEN}[SUCCESS]{C.RESET} Звіт успішно згенеровано та збережено: {C.CYAN}{filepath}{C.RESET}"
+            )
+        else:
+            print(
+                f"{C.RED}[ERROR] Не вдалося згенерувати звіт. Перевірте логи.{C.RESET}"
+            )
 
     def do_status(self, arg):
         data = StateEngine.load_roadmap()
