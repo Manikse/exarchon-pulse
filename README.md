@@ -34,7 +34,7 @@ EXARCHON-PULSE Engine є суверенним автономним вузлом 
 ### 1. Exarchon-Executive Reporter
 Автономна система спостереження та звітності 24/7:
 * Activity Tracker Daemon: Фоновий процес, який моніторить Git commit logs, оновлення у робочих директоріях та локальні Markdown-нотатки.
-* Build-in-Public Generator: Автономна підготовка чернеток постів для X (Twitter) / Telegram про хід розробки з механікою 1-Click Approve перед публікацією.
+* Build-in-Public Generator: Автономна підготовка чернеток постів для X (Twitter) / Telegram про хід розробки з механікою 1-Click Approve перед публікацією. (Planned)
 
 ### 2. Exarchon-Dynamic Planner
 Персональний адаптивний помічник і стратегічний навігатор:
@@ -88,16 +88,22 @@ python main.py
 
 # Pulse Roadmap
 
-## Phase 1: Core Engine & Data Collection (Current)
+## Phase 1: Core Engine & Data Collection (Completed)
 - [x] CLI Control Interface (PulseConsole)
 - [x] Background Daemon Architecture & SQLite State Management
-- [ ] GitHub Activity Tracker (Assigned to @CAH4E3-SHO)
-- [ ] Local File & Notes Tracker
+- [x] GitHub Activity Tracker (Rate-limit aware, robust payload parsing)
+- [x] Local File & Notes Tracker
 
-## Phase 2: Context Filtering & AI Intelligence
+## Phase 2: Context Filtering & Reporting (Current)
+- [x] Automated Daily/Weekly Markdown Report Generator (with Effort Distribution)
+- [x] Multi-source Activity Aggregator (Git + Local FS)
 - [ ] Raw JSON Payload Summarizer (LLM Integration)
-- [ ] Multi-source Activity Aggregator
-- [ ] Automated Daily/Weekly Report Generator
+- [ ] Telegram/CLI Decision Queue Sync
+
+## Phase 3: Adaptive Planning (Future)
+- [ ] Build-in-Public Generator (X / Telegram drafts)
+- [ ] Dynamic Roadmap Engine
+- [ ] Adaptive Scheduler
 ---
 
 <div align="center"> 
