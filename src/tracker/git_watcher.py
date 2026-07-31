@@ -3,24 +3,23 @@ import requests
 import json
 import logging
 import time
+from src.core.database import get_connection
 
-logger = logging.getLogger("PulseCore")
+logger = logging.getLogger("PulseCore.GitWatcher")
+
 
 class GitActivityTracker:
     def __init__(self, target_user="manikse"):
         self.target_user = target_user
         self.api_url = f"https://api.github.com/users/{self.target_user}/events/public"
         self.token = os.getenv("GITHUB_TOKEN")
-        
-        self.seen_events = set()
-        self.is_first_run = True
-        
+
         self.headers = {
             "User-Agent": "Exarchon-Pulse-Engine",
-            "Accept": "application/vnd.github.v3+json"
+            "Accept": "application/vnd.github.v3+json",
         }
         if self.token:
-            self.headers["Authorization"] = f"token {self.token}"
+            self.headers["Authorization"] = f"Bearer {self.token}"
 
     def _fetch_repo_diff(self, repo_name: str, commit_url: str = None) -> str:
         """Витягує змінені файли та їхній вміст (diff) для аналізу."""
@@ -32,30 +31,31 @@ class GitActivityTracker:
                     changes = []
                     for f in data.get("files", []):
                         filename = f.get("filename")
-                        status = f.get("status") # added, modified, removed
-                        patch = f.get("patch", "No text diff available (binary or large file)")
-                        changes.append(f"File: {filename} ({status})\nChanges:\n{patch}")
+                        status = f.get("status")
+                        patch = f.get(
+                            "patch", "No text diff available (binary or large file)"
+                        )
+                        changes.append(
+                            f"File: {filename} ({status})\nChanges:\n{patch}"
+                        )
                     return "\n\n".join(changes)
-            
-            # Якщо посилання на коміт немає, беремо загальні останні події репо
+
             commits_api = f"https://api.github.com/repos/{repo_name}/commits"
             resp = requests.get(commits_api, headers=self.headers, timeout=5)
-            if resp.status_code == 200:
-                commits = resp.json()
-                if commits:
-                    latest_commit_url = commits[0].get("url")
-                    return self._fetch_repo_diff(repo_name, latest_commit_url)
+            if resp.status_code == 200 and resp.json():
+                latest_commit_url = resp.json()[0].get("url")
+                return self._fetch_repo_diff(repo_name, latest_commit_url)
         except Exception as e:
-            logger.error(f"Error fetching repo diff: {e}")
-        
+            logger.debug(f"Помилка завантаження diff: {e}")
+
         return "No code diff could be retrieved."
 
     def _generate_smart_summary(self, repo_name: str, payload: dict) -> tuple:
         """Аналізує зміни і формує коротке осмислене резюме + повний payload з файлами."""
         commits = payload.get("commits", [])
         commits_count = len(commits)
-        
-        commit_msgs = [c.get("message", "").split('\n')[0] for c in commits]
+
+        commit_msgs = [c.get("message", "").split("\n")[0] for c in commits]
         detailed_changes_text = ""
 
         if commits_count > 0:
@@ -65,14 +65,13 @@ class GitActivityTracker:
                     diff_data = self._fetch_repo_diff(repo_name, commit_url)
                     commit["detailed_diff"] = diff_data
                     detailed_changes_text += f"\n--- Commit: {commit.get('message', '').split('\n')[0]} ---\n{diff_data}"
-                    time.sleep(0.3)
+                    time.sleep(0.3)  # Rate limit protection
             summary = f"Updated {repo_name}: " + " | ".join(commit_msgs)
         else:
-            # Якщо комітів у пейлоаді 0 (наприклад, веб-редагування або сабмодулі)
             diff_data = self._fetch_repo_diff(repo_name)
             payload["detailed_diff"] = diff_data
-            summary = f"Direct update/push in {repo_name} (web edit or branch sync)"
-            commits_count = 1 # Враховуємо як подію змін
+            summary = f"Direct update in {repo_name} (branch sync/web edit)"
+            commits_count = 1
 
         return summary, commits_count, json.dumps(payload)
 
@@ -80,62 +79,69 @@ class GitActivityTracker:
         new_events = []
         try:
             response = requests.get(self.api_url, headers=self.headers, timeout=10)
-            
-            if response.status_code == 403:
+
+            if response.status_code in (403, 429):
                 logger.error("[GIT] API Rate Limit Exceeded. Перевірте GITHUB_TOKEN.")
                 return []
             elif response.status_code != 200:
                 return []
 
             events = response.json()
-            
+
+            # Витягуємо останні event_id з БД, щоб перевіряти дублікати
+            conn = get_connection()
+            try:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT event_id FROM github_events ORDER BY id DESC LIMIT 50"
+                )
+                saved_events = {row["event_id"] for row in cursor.fetchall()}
+            finally:
+                conn.close()
+
             for event in reversed(events):
                 event_id = event.get("id")
-                
-                if event_id in self.seen_events:
-                    continue
-                    
-                self.seen_events.add(event_id)
-                
-                if self.is_first_run:
+
+                # Відсікаємо те, що вже є в базі
+                if event_id in saved_events:
                     continue
 
                 event_type = event.get("type")
                 repo_name = event.get("repo", {}).get("name", "unknown")
                 created_at = event.get("created_at")
                 payload = event.get("payload", {})
-                
+
                 summary = ""
                 commits_count = 0
 
                 if event_type == "PushEvent":
-                    summary, commits_count, raw_payload_str = self._generate_smart_summary(repo_name, payload)
-                elif event_type == "CreateEvent":
-                    ref_type = payload.get("ref_type", "repository")
-                    summary = f"Created new {ref_type} in {repo_name}"
-                    raw_payload_str = json.dumps(payload)
-                elif event_type == "IssuesEvent":
-                    summary = f"{payload.get('action').capitalize()} issue: {payload.get('issue', {}).get('title', '')}"
-                    raw_payload_str = json.dumps(payload)
-                elif event_type == "PullRequestEvent":
-                    summary = f"{payload.get('action').capitalize()} PR: {payload.get('pull_request', {}).get('title', '')}"
+                    summary, commits_count, raw_payload_str = (
+                        self._generate_smart_summary(repo_name, payload)
+                    )
+                elif event_type in ("CreateEvent", "IssuesEvent", "PullRequestEvent"):
+                    action = payload.get("action", "Created")
+                    title = payload.get("issue", {}).get(
+                        "title", payload.get("pull_request", {}).get("title", "")
+                    )
+                    summary = f"{action} in {repo_name}: {title}".strip(": ")
                     raw_payload_str = json.dumps(payload)
                 else:
                     continue
 
-                new_events.append({
-                    "event_id": event_id,
-                    "event_type": event_type,
-                    "repo_name": repo_name,
-                    "commits_count": commits_count,
-                    "summary": summary,
-                    "raw_payload": raw_payload_str,
-                    "date": created_at
-                })
-            
-            self.is_first_run = False
+                new_events.append(
+                    {
+                        "event_id": event_id,
+                        "event_type": event_type,
+                        "repo_name": repo_name,
+                        "commits_count": commits_count,
+                        "summary": summary,
+                        "raw_payload": raw_payload_str,
+                        "date": created_at,
+                    }
+                )
+
             return new_events
 
-        except Exception as e:
-            logger.error(f"[GIT] Parser failure: {e}")
+        except requests.RequestException as e:
+            logger.error(f"[GIT] Network failure: {e}")
             return []
