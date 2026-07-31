@@ -163,6 +163,10 @@ class PulseConsole(cmd.Cmd):
     )
     prompt = "Pulse> "
 
+    def emptyline(self):
+        """Перевизначає поведінку cmd, щоб порожній Enter не повторював команду."""
+        pass
+
     def do_report(self, arg):
         """Згенерувати аналітичний звіт на базі збережених даних. Використання: report"""
         print(f"\n{C.YELLOW}[REPORT]{C.RESET} Обробка даних...")
