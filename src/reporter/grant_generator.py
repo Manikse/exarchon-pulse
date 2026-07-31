@@ -113,7 +113,6 @@ class ReportGenerator:
                 md_lines.append(f"- `{r}`")
             md_lines.append("\n")
 
-        # Новий блок з категоризацією
         effort_dist = self._calculate_effort_distribution(recent_pushes)
         md_lines.append("## 🏷 Effort Distribution (Labels)")
         if effort_dist:
@@ -127,9 +126,10 @@ class ReportGenerator:
         if recent_pushes:
             # Обмежуємо вивід до 15 останніх для зручності читання
             for push in recent_pushes[:15]:
-                date_only = push["created_at"].split("T")[0]
+                # Перетворюємо "2026-07-31T10:24:11Z" на "2026-07-31 10:24"
+                formatted_time = push["created_at"].replace("T", " ")[:16]
                 md_lines.append(
-                    f"- **[{date_only}] {push['repo_name']}**: {push['summary']}"
+                    f"- **[{formatted_time}] {push['repo_name']}**: {push['summary']}"
                 )
         else:
             md_lines.append("- No code updates recorded in this period.")
