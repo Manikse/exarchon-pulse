@@ -209,37 +209,90 @@ class PulseConsole(cmd.Cmd):
         pass
 
     def do_report(self, arg):
-        """Згенерувати аналітичний звіт на базі збережених даних. Використання: report"""
-        print(f"\n{C.YELLOW}[REPORT]{C.RESET} Обробка даних...")
+        """Згенерувати аналітичний звіт. Використання: report [day|week|month|all]"""
+        args = arg.strip().lower()
+        valid_args = {"day": 1, "week": 7, "month": 30}
+
+        from datetime import datetime, timedelta
+
+        time_filter = ""
+        params = []
+        period_name = "За весь час"
+        limit = 10  # Дефолтний ліміт для 'all', щоб не переповнити консоль
+
+        if args in valid_args:
+            days = valid_args[args]
+            cutoff = datetime.utcnow() - timedelta(days=days)
+            cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+            time_filter = "WHERE created_at >= ?"
+            params = [cutoff_str]
+            period_name = f"За останні {days} днів"
+            limit = 50  # Розширений ліміт для конкретних часових зрізів
+        elif args and args != "all":
+            print(
+                f"\n{C.RED}[ERROR] Невідомий період. Використовуйте: report [day|week|month|all]{C.RESET}"
+            )
+            return
+
+        print(
+            f"\n{C.YELLOW}[REPORT]{C.RESET} Генерація розширеного звіту ({period_name})..."
+        )
         conn = get_connection()
         try:
             cursor = conn.cursor()
 
+            # Загальна статистика за період
             cursor.execute(
-                "SELECT COUNT(*) as events, SUM(commits_count) as total_commits FROM github_events"
+                f"SELECT COUNT(*) as events, SUM(commits_count) as total_commits FROM github_events {time_filter}",
+                params,
             )
             stats = cursor.fetchone()
-
             events_count = stats["events"] or 0
             commits_sum = stats["total_commits"] or 0
 
+            # Агрегація по репозиторіях
             cursor.execute(
-                "SELECT repo_name, summary, created_at FROM github_events ORDER BY created_at DESC LIMIT 5"
+                f"""
+                SELECT repo_name, COUNT(*) as ev_count, SUM(commits_count) as com_count 
+                FROM github_events {time_filter} 
+                GROUP BY repo_name 
+                ORDER BY ev_count DESC
+            """,
+                params,
+            )
+            repo_stats = cursor.fetchall()
+
+            # Останні дії з динамічним лімітом
+            cursor.execute(
+                f"SELECT repo_name, summary, created_at FROM github_events {time_filter} ORDER BY created_at DESC LIMIT ?",
+                params + [limit],
             )
             recent_events = cursor.fetchall()
 
             print(f"\n{C.CYAN}=== EXARCHON-PULSE EXECUTIVE SUMMARY ==={C.RESET}")
-            print(f"Зафіксовано подій в БД: {C.GREEN}{events_count}{C.RESET}")
-            print(f"Сумарна кількість комітів: {C.GREEN}{commits_sum}{C.RESET}")
+            print(f"Період: {C.YELLOW}{period_name}{C.RESET}")
+            print(
+                f"Зафіксовано подій: {C.GREEN}{events_count}{C.RESET} | Комітів: {C.GREEN}{commits_sum}{C.RESET}"
+            )
 
-            print(f"\n{C.CYAN}Останні активності:{C.RESET}")
+            if repo_stats:
+                print(f"\n{C.CYAN}Розподіл активності по репозиторіях:{C.RESET}")
+                for r in repo_stats:
+                    c_count = r["com_count"] or 0
+                    print(
+                        f" - {C.YELLOW}{r['repo_name']}{C.RESET}: {r['ev_count']} подій (Комітів: {c_count})"
+                    )
+
+            # Тепер ми чітко вказуємо, скільки записів виведено
+            print(f"\n{C.CYAN}Активність (до {limit} останніх записів):{C.RESET}")
             if recent_events:
                 for ev in recent_events:
+                    date_short = ev["created_at"].replace("T", " ").replace("Z", "")
                     print(
-                        f" {C.DIM}[{ev['created_at']}]{C.RESET} {C.YELLOW}{ev['repo_name']}{C.RESET}: {ev['summary']}"
+                        f" {C.DIM}[{date_short}]{C.RESET} {C.YELLOW}{ev['repo_name']}{C.RESET}: {ev['summary']}"
                     )
             else:
-                print(f" {C.DIM}- Немає даних для відображення.{C.RESET}")
+                print(f" {C.DIM}- Немає даних для відображення за цей період.{C.RESET}")
             print(f"{C.CYAN}========================================{C.RESET}\n")
         except Exception as e:
             print(f"\n{C.RED}[ERROR] Помилка генерації звіту: {e}{C.RESET}")
