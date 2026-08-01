@@ -286,8 +286,22 @@ class PulseConsole(cmd.Cmd):
             # Тепер ми чітко вказуємо, скільки записів виведено
             print(f"\n{C.CYAN}Активність (до {limit} останніх записів):{C.RESET}")
             if recent_events:
+                from datetime import timezone
+
                 for ev in recent_events:
-                    date_short = ev["created_at"].replace("T", " ").replace("Z", "")
+                    try:
+                        # Парсимо UTC час з GitHub (наприклад, '2026-08-01T09:57:08Z')
+                        utc_dt = datetime.strptime(
+                            ev["created_at"], "%Y-%m-%dT%H:%M:%SZ"
+                        )
+                        # Встановлюємо, що це саме UTC, і конвертуємо в локальний час системи
+                        utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+                        local_dt = utc_dt.astimezone()
+                        date_short = local_dt.strftime("%Y-%m-%d %H:%M:%S")
+                    except ValueError:
+                        # Fallback, якщо дата має неочікуваний формат
+                        date_short = ev["created_at"].replace("T", " ").replace("Z", "")
+
                     print(
                         f" {C.DIM}[{date_short}]{C.RESET} {C.YELLOW}{ev['repo_name']}{C.RESET}: {ev['summary']}"
                     )
