@@ -2,6 +2,7 @@ import os
 import requests
 import json
 import logging
+import sqlite3
 import time
 from src.core.database import get_connection
 
@@ -120,17 +121,26 @@ class GitActivityTracker:
                 return []
 
             events = response.json()
+            if not isinstance(events, list):
+                logger.error(
+                    f"[GIT] Неочікуваний формат відповіді API (очікувався list): {events}"
+                )
+                return []
 
             # Витягуємо останні event_id з БД, щоб перевіряти дублікати
-            conn = get_connection()
             try:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT event_id FROM github_events ORDER BY id DESC LIMIT 200"
-                )
-                saved_events = {row["event_id"] for row in cursor.fetchall()}
-            finally:
-                conn.close()
+                conn = get_connection()
+                try:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "SELECT event_id FROM github_events ORDER BY id DESC LIMIT 200"
+                    )
+                    saved_events = {row["event_id"] for row in cursor.fetchall()}
+                finally:
+                    conn.close()
+            except sqlite3.Error as e:
+                logger.error(f"[GIT] Помилка читання БД (event_id cache): {e}")
+                return []
 
             for event in reversed(events):
                 event_id = event.get("id")

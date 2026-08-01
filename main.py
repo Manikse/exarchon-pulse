@@ -115,7 +115,14 @@ class ActivityTrackerDaemon(threading.Thread):
             time.sleep(10)
             ticks += 1
 
-            new_events = self.git_tracker.get_new_activity()
+            try:
+                new_events = self.git_tracker.get_new_activity()
+            except Exception as e:
+                logger.error(
+                    f"[GIT] Непередбачена помилка в get_new_activity(): {e}",
+                    exc_info=True,
+                )
+                new_events = None
 
             # --- Контроль стану мережі ---
             if new_events is None:
@@ -135,7 +142,14 @@ class ActivityTrackerDaemon(threading.Thread):
                     self.network_online = True
             # -----------------------------
 
-            new_notes = self.notes_tracker.get_new_activity()
+            try:
+                new_notes = self.notes_tracker.get_new_activity()
+            except Exception as e:
+                logger.error(
+                    f"[NOTES] Непередбачена помилка в get_new_activity(): {e}",
+                    exc_info=True,
+                )
+                new_notes = []
 
             if new_events or new_notes:
                 conn = get_connection()
