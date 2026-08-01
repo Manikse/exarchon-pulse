@@ -443,6 +443,10 @@ class PulseConsole(cmd.Cmd):
         except Exception as e:
             print(f"\n{C.RED}[ERROR] Помилка запису профілю: {e}{C.RESET}")
 
+    def do_clear(self, arg):
+        """Очистити екран консолі. Використання: clear"""
+        os.system("cls" if os.name == "nt" else "clear")
+
     def do_exit(self, arg):
         print(f"\n{C.YELLOW}[SYSTEM] Завершення роботи...{C.RESET}")
         return True
