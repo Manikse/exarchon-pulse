@@ -64,6 +64,14 @@ def init_db():
             )
         """)
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tracked_repos (
+                repo_name TEXT PRIMARY KEY,
+                last_sha TEXT,
+                last_checked_at TEXT
+            )
+        """)
+
         cursor.execute(
             "INSERT OR IGNORE INTO system_config (key, value) VALUES ('target_github_user', 'manikse')"
         )

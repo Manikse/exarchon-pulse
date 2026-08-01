@@ -367,6 +367,7 @@ class PulseConsole(cmd.Cmd):
                 print(f"   {key}: {val}")
 
     def do_diagnostics(self, arg):
+        conn = None
         try:
             conn = get_connection()
             cursor = conn.cursor()
@@ -386,7 +387,8 @@ class PulseConsole(cmd.Cmd):
             cursor.execute("SELECT COUNT(*) as cnt FROM notes_updates")
             notes_count = cursor.fetchone()["cnt"]
 
-            conn.close()
+            cursor.execute("SELECT COUNT(*) as cnt FROM tracked_repos")
+            tracked_repos_count = cursor.fetchone()["cnt"]
 
             token_status = (
                 f"{C.GREEN}LOADED{C.RESET}"
@@ -401,10 +403,14 @@ class PulseConsole(cmd.Cmd):
                 f" Saved Events (DB)       : {C.GREEN}{events_count}{C.RESET} (Commits: {commits_sum})"
             )
             print(f" Saved Notes (DB)        : {C.GREEN}{notes_count}{C.RESET}")
+            print(f" Tracked Repos (auto)    : {C.GREEN}{tracked_repos_count}{C.RESET}")
             print(f" Daemon Cycle            : 10s (Heartbeat: 60s)")
             print(f"{C.CYAN}-----------------------------------------------{C.RESET}")
         except Exception as e:
             print(f"\n{C.RED}[ERROR] Diagnostics DB failure: {e}{C.RESET}")
+        finally:
+            if conn is not None:
+                conn.close()
 
     def do_decide(self, arg):
         args = arg.split()
