@@ -99,6 +99,10 @@ class ActivityTrackerDaemon(threading.Thread):
         self.git_tracker = GitActivityTracker(target_user=target_user)
         self.notes_tracker = NotesTracker(repo_path)
 
+        self.git_tracker = GitActivityTracker(target_user=target_user)
+        self.notes_tracker = NotesTracker(repo_path)
+        self.network_online = True  # Додаємо відстеження стану мережі
+
     def run(self):
         time.sleep(1)
         start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -112,6 +116,25 @@ class ActivityTrackerDaemon(threading.Thread):
             ticks += 1
 
             new_events = self.git_tracker.get_new_activity()
+
+            # --- Контроль стану мережі ---
+            if new_events is None:
+                if self.network_online:
+                    curr_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    async_print(
+                        f"\n{C.DIM}[{curr_time}]{C.RESET} {C.RED}[ERROR] Втрачено з'єднання з інтернетом або GitHub API.{C.RESET}"
+                    )
+                    self.network_online = False
+                new_events = []  # Скидаємо до порожнього списку, щоб цикл безпечно йшов далі
+            else:
+                if not self.network_online:
+                    curr_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    async_print(
+                        f"\n{C.DIM}[{curr_time}]{C.RESET} {C.GREEN}[SYSTEM] З'єднання відновлено. Продовжую моніторинг.{C.RESET}"
+                    )
+                    self.network_online = True
+            # -----------------------------
+
             new_notes = self.notes_tracker.get_new_activity()
 
             if new_events or new_notes:

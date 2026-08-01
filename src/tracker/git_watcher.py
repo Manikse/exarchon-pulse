@@ -175,6 +175,10 @@ class GitActivityTracker:
 
             return new_events
 
+        except requests.exceptions.ConnectionError:
+            # Повне падіння мережі
+            return None
         except requests.RequestException as e:
-            logger.error(f"[GIT] Network failure: {e}")
-            return []
+            # Інші помилки API
+            logger.debug(f"[GIT] API failure: {e}")
+            return None
