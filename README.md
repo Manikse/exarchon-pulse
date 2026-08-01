@@ -89,7 +89,7 @@ python main.py
 # Pulse Roadmap
 
 ## Phase 1: Core Engine & Data Collection (Completed)
-- [x] CLI Control Interface (PulseConsole)
+- [x] CLI Control Interface (PulseConsole) 
 - [x] Background Daemon Architecture & SQLite State Management
 - [x] GitHub Activity Tracker (Rate-limit aware, robust payload parsing)
 - [x] Local File & Notes Tracker
