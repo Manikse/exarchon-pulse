@@ -13,6 +13,28 @@ load_dotenv()
 from src.reporter.grant_generator import ReportGenerator
 from colorama import init, Fore, Style
 
+import sys
+
+try:
+    import readline
+except ImportError:
+    readline = None
+
+
+def async_print(message):
+    """
+    Виводить повідомлення з фонового потоку, не ламаючи поточний ввід користувача.
+    """
+    # \r повертає каретку на початок, \033[K очищує рядок до кінця
+    sys.stdout.write("\r\033[K")
+    print(message)
+
+    # Відновлюємо prompt та те, що користувач вже встиг ввести
+    buffer = readline.get_line_buffer() if readline else ""
+    sys.stdout.write("Pulse> " + buffer)
+    sys.stdout.flush()
+
+
 init(autoreset=True)
 
 
@@ -80,10 +102,9 @@ class ActivityTrackerDaemon(threading.Thread):
     def run(self):
         time.sleep(1)
         start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(
-            f"\n{C.DIM}[{start_time}]{C.RESET} {C.GREEN}[DAEMON]{C.RESET} Пульс запущено. Очікування нових подій..."
+        async_print(
+            f"{C.DIM}[{start_time}]{C.RESET} {C.GREEN}[DAEMON]{C.RESET} Пульс запущено. Очікування нових подій..."
         )
-        print("Pulse> ", end="", flush=True)
 
         ticks = 0
         while True:
@@ -100,8 +121,8 @@ class ActivityTrackerDaemon(threading.Thread):
 
                     for event in new_events:
                         curr_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        print(
-                            f"\n\n{C.DIM}[{curr_time}]{C.RESET} {C.CYAN}[GIT]{C.RESET} {event['event_type']} in {C.YELLOW}{event['repo_name']}{C.RESET}: {event['summary']}"
+                        async_print(
+                            f"{C.DIM}[{curr_time}]{C.RESET} {C.CYAN}[GIT]{C.RESET} {event['event_type']} in {C.YELLOW}{event['repo_name']}{C.RESET}: {event['summary']}"
                         )
 
                         cursor.execute(
@@ -120,13 +141,12 @@ class ActivityTrackerDaemon(threading.Thread):
                                 event["date"],
                             ),
                         )
-                        print("Pulse> ", end="", flush=True)
 
                     for note in new_notes:
                         curr_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         action = note.get("action", "updated")
-                        print(
-                            f"\n\n{C.DIM}[{curr_time}]{C.RESET} {C.MAGENTA}[NOTES]{C.RESET} {action}: {note['file']}"
+                        async_print(
+                            f"{C.DIM}[{curr_time}]{C.RESET} {C.MAGENTA}[NOTES]{C.RESET} {action}: {note['file']}"
                         )
 
                         cursor.execute(
@@ -136,7 +156,6 @@ class ActivityTrackerDaemon(threading.Thread):
                         """,
                             (note["file"], time.time(), action),
                         )
-                        print("Pulse> ", end="", flush=True)
 
                     conn.commit()
                 except Exception as e:
@@ -147,10 +166,9 @@ class ActivityTrackerDaemon(threading.Thread):
             else:
                 if ticks % 6 == 0:
                     curr_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    print(
-                        f"\n{C.DIM}[{curr_time}]{C.RESET} {C.GREEN}[DAEMON]{C.RESET} Пульс активний. Спостереження триває..."
+                    async_print(
+                        f"{C.DIM}[{curr_time}]{C.RESET} {C.GREEN}[DAEMON]{C.RESET} Пульс активний. Спостереження триває..."
                     )
-                    print("Pulse> ", end="", flush=True)
 
 
 class PulseConsole(cmd.Cmd):
