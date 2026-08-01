@@ -11,7 +11,7 @@ logger = logging.getLogger("PulseCore.GitWatcher")
 class GitActivityTracker:
     def __init__(self, target_user="manikse"):
         self.target_user = target_user
-        self.api_url = f"https://api.github.com/users/{self.target_user}/events/public"
+        self.api_url = f"https://api.github.com/users/{self.target_user}/events/public?per_page=100"
         self.token = os.getenv("GITHUB_TOKEN")
 
         self.headers = {
@@ -126,7 +126,7 @@ class GitActivityTracker:
             try:
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT event_id FROM github_events ORDER BY id DESC LIMIT 50"
+                    "SELECT event_id FROM github_events ORDER BY id DESC LIMIT 200"
                 )
                 saved_events = {row["event_id"] for row in cursor.fetchall()}
             finally:
