@@ -51,6 +51,7 @@ class C:
 from src.tracker.git_watcher import GitActivityTracker
 from src.tracker.notes_watcher import NotesTracker
 from src.core.database import init_db, get_connection
+from src.core.bus import bus
 
 logging.basicConfig(
     level=logging.WARNING, format="%(asctime)s [%(levelname)s] %(message)s"
@@ -429,6 +430,14 @@ class PulseConsole(cmd.Cmd):
                 found = True
                 print(
                     f"\n{C.GREEN}[ACTION] Рішення {dec_id} зафіксовано: {choice}.{C.RESET}"
+                )
+                bus.publish(
+                    "decision.resolved",
+                    {
+                        "id": dec_id,
+                        "question": dec.get("question", ""),
+                        "selected_option": choice,
+                    },
                 )
                 break
 

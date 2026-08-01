@@ -9,18 +9,21 @@ phases:
     milestones:
       - id: "m1"
         title: "Activity Tracker & Observer"
-        status: "in_progress"
+        status: "completed"
         tasks:
           - id: "t1"
             title: "Git log polling daemon"
             completed: true
           - id: "t2"
             title: "Markdown notes watcher"
-            completed: false
+            completed: true
       - id: "m2"
         title: "Dynamic Planner Integration"
-        status: "pending"
+        status: "in_progress"
         tasks:
+          - id: "t4"
+            title: "Message Bus (Core)"
+            completed: true
           - id: "t3"
             title: "Decision Queue Telegram Interface"
             completed: false
@@ -31,5 +34,6 @@ decision_queue:
     options:
       A: "In-memory Async Queue (Локально, нуль залежностей)"
       B: "NATS / Redis (Мережева масштабованість)"
-    status: "pending"
+    status: "resolved"
+    selected_option: "A"
     context: "Потрібно для проектування модуля bus.py у майбутньому Ядрі."
