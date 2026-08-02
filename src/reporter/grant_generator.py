@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import logging
 from datetime import datetime
 from src.core.database import get_connection, get_report_scope
@@ -57,6 +58,22 @@ class ReportGenerator:
 
         return percentages
 
+    def _parse_diff_stats(self, push) -> dict:
+        """
+        Дістає files_changed/additions/deletions з raw_payload одного пушу.
+        Захищено від старих записів (ще з часів events-feed), де цих полів
+        немає взагалі, або raw_payload порожній/битий — тоді просто 0.
+        """
+        try:
+            payload = json.loads(push["raw_payload"]) if push["raw_payload"] else {}
+        except (json.JSONDecodeError, TypeError):
+            return {"files_changed": 0, "additions": 0, "deletions": 0}
+        return {
+            "files_changed": payload.get("files_changed", 0) or 0,
+            "additions": payload.get("additions", 0) or 0,
+            "deletions": payload.get("deletions", 0) or 0,
+        }
+
     def generate_markdown_report(
         self, period_type: str = "all", date_arg: str = None
     ) -> str:
@@ -113,7 +130,7 @@ class ReportGenerator:
             # 3. Останні ключові досягнення
             cursor.execute(
                 f"""
-                SELECT repo_name, summary, created_at 
+                SELECT repo_name, summary, created_at, raw_payload 
                 FROM github_events 
                 WHERE event_type = 'PushEvent' {where_clause_and}
                 ORDER BY created_at DESC LIMIT 50
@@ -160,7 +177,19 @@ class ReportGenerator:
         md_lines.append("## 📊 High-Level Metrics")
         md_lines.append(f"- **Total GitHub Events Tracked:** {total_events}")
         md_lines.append(f"- **Total Commits Pushed:** {total_commits}")
-        md_lines.append(f"- **Active Repositories:** {len(repos)}\n")
+        md_lines.append(f"- **Active Repositories:** {len(repos)}")
+
+        agg_files = sum(
+            self._parse_diff_stats(p)["files_changed"] for p in recent_pushes
+        )
+        agg_add = sum(self._parse_diff_stats(p)["additions"] for p in recent_pushes)
+        agg_del = sum(self._parse_diff_stats(p)["deletions"] for p in recent_pushes)
+        if agg_files or agg_add or agg_del:
+            md_lines.append(
+                f"- **Lines Changed (last {len(recent_pushes)} pushes shown below):** "
+                f"{agg_files} files, +{agg_add}/-{agg_del}"
+            )
+        md_lines.append("\n")
 
         if repos:
             md_lines.append("### 📁 Repositories Touched")
@@ -183,8 +212,19 @@ class ReportGenerator:
             for push in recent_pushes[:15]:
                 # Перетворюємо "2026-07-31T10:24:11Z" на "2026-07-31 10:24"
                 formatted_time = push["created_at"].replace("T", " ")[:16]
+                diff_stats = self._parse_diff_stats(push)
+                stats_suffix = ""
+                if (
+                    diff_stats["files_changed"]
+                    or diff_stats["additions"]
+                    or diff_stats["deletions"]
+                ):
+                    stats_suffix = (
+                        f" _(files: {diff_stats['files_changed']}, "
+                        f"+{diff_stats['additions']}/-{diff_stats['deletions']})_"
+                    )
                 md_lines.append(
-                    f"- **[{formatted_time}] {push['repo_name']}**: {push['summary']}"
+                    f"- **[{formatted_time}] {push['repo_name']}**: {push['summary']}{stats_suffix}"
                 )
         else:
             md_lines.append("- No code updates recorded in this period.")

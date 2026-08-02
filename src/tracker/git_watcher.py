@@ -163,28 +163,47 @@ class GitActivityTracker:
     # Перевірка комітів по конкретному репозиторію (SHA-based, надійно)
     # ------------------------------------------------------------------
 
-    def _fetch_repo_diff(self, repo_name: str, commit_url: str = None) -> str:
-        """Витягує змінені файли та їхній вміст (diff) для аналізу."""
+    def _fetch_repo_diff(self, repo_name: str, commit_url: str = None) -> dict:
+        """
+        Витягує змінені файли, текстовий diff (для майбутнього LLM/Brain-аналізу)
+        і числову статистику змін (файли/+/-) для коміту.
+        GitHub вже повертає stats.additions/deletions у тій самій відповіді,
+        яку ми й так запитуємо для тексту diff — просто раніше вона відкидалась.
+        """
+        empty = {
+            "text": "No code diff could be retrieved.",
+            "files_changed": 0,
+            "additions": 0,
+            "deletions": 0,
+        }
+        if not commit_url:
+            return empty
         try:
-            if commit_url:
-                resp = requests.get(commit_url, headers=self.headers, timeout=5)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    changes = []
-                    for f in data.get("files", []):
-                        filename = f.get("filename")
-                        status = f.get("status")
-                        patch = f.get(
-                            "patch", "No text diff available (binary or large file)"
-                        )
-                        changes.append(
-                            f"File: {filename} ({status})\nChanges:\n{patch}"
-                        )
-                    return "\n\n".join(changes)
+            resp = requests.get(commit_url, headers=self.headers, timeout=5)
+            if resp.status_code != 200:
+                return empty
+
+            data = resp.json()
+            files = data.get("files", [])
+            changes = []
+            for f in files:
+                filename = f.get("filename")
+                status = f.get("status")
+                patch = f.get("patch", "No text diff available (binary or large file)")
+                changes.append(f"File: {filename} ({status})\nChanges:\n{patch}")
+
+            stats = data.get("stats", {})
+            return {
+                "text": "\n\n".join(changes)
+                if changes
+                else "No code diff could be retrieved.",
+                "files_changed": len(files),
+                "additions": stats.get("additions", 0),
+                "deletions": stats.get("deletions", 0),
+            }
         except Exception as e:
             logger.debug(f"Помилка завантаження diff: {e}")
-
-        return "No code diff could be retrieved."
+            return empty
 
     def _check_repo_commits(self, repo_name: str) -> list:
         """
@@ -265,10 +284,23 @@ class GitActivityTracker:
             author_date = c.get("commit", {}).get("author", {}).get("date")
             commit_url = c.get("url")
 
-            diff_data = (
-                self._fetch_repo_diff(repo_name, commit_url) if commit_url else ""
+            diff = (
+                self._fetch_repo_diff(repo_name, commit_url)
+                if commit_url
+                else {
+                    "text": "",
+                    "files_changed": 0,
+                    "additions": 0,
+                    "deletions": 0,
+                }
             )
-            payload = {"sha": sha, "detailed_diff": diff_data}
+            payload = {
+                "sha": sha,
+                "detailed_diff": diff["text"],
+                "files_changed": diff["files_changed"],
+                "additions": diff["additions"],
+                "deletions": diff["deletions"],
+            }
 
             new_events.append(
                 {
