@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import json
 import logging
 
 logger = logging.getLogger("PulseCore.Database")
@@ -12,6 +13,40 @@ def get_connection():
     conn = sqlite3.connect(DB_PATH, timeout=10.0)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def get_report_scope() -> list:
+    """
+    Повертає список репозиторіїв у фокусі звітів.
+    Порожній список = звіти включають усі відстежувані репозиторії (дефолт).
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM system_config WHERE key = 'report_scope'")
+        row = cursor.fetchone()
+        if not row or not row["value"]:
+            return []
+        return json.loads(row["value"])
+    finally:
+        conn.close()
+
+
+def set_report_scope(repos: list) -> None:
+    """Зберігає список репозиторіїв у фокусі звітів. Порожній список скидає фокус."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO system_config (key, value) VALUES ('report_scope', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (json.dumps(repos),),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def init_db():

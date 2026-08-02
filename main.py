@@ -50,7 +50,12 @@ class C:
 
 from src.tracker.git_watcher import GitActivityTracker
 from src.tracker.notes_watcher import NotesTracker
-from src.core.database import init_db, get_connection
+from src.core.database import (
+    init_db,
+    get_connection,
+    get_report_scope,
+    set_report_scope,
+)
 from src.core.bus import bus
 
 logging.basicConfig(
@@ -230,7 +235,7 @@ class PulseConsole(cmd.Cmd):
 
         from datetime import datetime, timedelta
 
-        time_filter = ""
+        conditions = []
         params = []
         period_name = "За весь час"
         limit = 10  # Дефолтний ліміт для 'all', щоб не переповнити консоль
@@ -239,8 +244,8 @@ class PulseConsole(cmd.Cmd):
             days = valid_args[args]
             cutoff = datetime.utcnow() - timedelta(days=days)
             cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
-            time_filter = "WHERE created_at >= ?"
-            params = [cutoff_str]
+            conditions.append("created_at >= ?")
+            params.append(cutoff_str)
             period_name = f"За останні {days} днів"
             limit = 50  # Розширений ліміт для конкретних часових зрізів
         elif args and args != "all":
@@ -248,6 +253,15 @@ class PulseConsole(cmd.Cmd):
                 f"\n{C.RED}[ERROR] Невідомий період. Використовуйте: report [day|week|month|all]{C.RESET}"
             )
             return
+
+        scope = get_report_scope()
+        if scope:
+            placeholders = ",".join("?" for _ in scope)
+            conditions.append(f"repo_name IN ({placeholders})")
+            params.extend(scope)
+        scope_label = ", ".join(scope) if scope else "усі відстежувані репозиторії"
+
+        where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
         print(
             f"\n{C.YELLOW}[REPORT]{C.RESET} Генерація розширеного звіту ({period_name})..."
@@ -258,7 +272,7 @@ class PulseConsole(cmd.Cmd):
 
             # Загальна статистика за період
             cursor.execute(
-                f"SELECT COUNT(*) as events, SUM(commits_count) as total_commits FROM github_events {time_filter}",
+                f"SELECT COUNT(*) as events, SUM(commits_count) as total_commits FROM github_events {where_clause}",
                 params,
             )
             stats = cursor.fetchone()
@@ -269,7 +283,7 @@ class PulseConsole(cmd.Cmd):
             cursor.execute(
                 f"""
                 SELECT repo_name, COUNT(*) as ev_count, SUM(commits_count) as com_count 
-                FROM github_events {time_filter} 
+                FROM github_events {where_clause} 
                 GROUP BY repo_name 
                 ORDER BY ev_count DESC
             """,
@@ -279,13 +293,14 @@ class PulseConsole(cmd.Cmd):
 
             # Останні дії з динамічним лімітом
             cursor.execute(
-                f"SELECT repo_name, summary, created_at FROM github_events {time_filter} ORDER BY created_at DESC LIMIT ?",
+                f"SELECT repo_name, summary, created_at FROM github_events {where_clause} ORDER BY created_at DESC LIMIT ?",
                 params + [limit],
             )
             recent_events = cursor.fetchall()
 
             print(f"\n{C.CYAN}=== EXARCHON-PULSE EXECUTIVE SUMMARY ==={C.RESET}")
             print(f"Період: {C.YELLOW}{period_name}{C.RESET}")
+            print(f"Фокус: {C.YELLOW}{scope_label}{C.RESET}")
             print(
                 f"Зафіксовано подій: {C.GREEN}{events_count}{C.RESET} | Комітів: {C.GREEN}{commits_sum}{C.RESET}"
             )
@@ -327,6 +342,81 @@ class PulseConsole(cmd.Cmd):
             print(f"\n{C.RED}[ERROR] Помилка генерації звіту: {e}{C.RESET}")
         finally:
             conn.close()
+
+    def do_scope(self, arg):
+        """
+        Керує фокусом звітів (які репозиторії включати в report/export).
+        Використання:
+          scope                 - показати поточний фокус і всі відстежувані репо
+          scope add <репо>      - додати репозиторій у фокус (напр. Manikse/ExArchon)
+          scope remove <репо>   - прибрати репозиторій із фокуса
+          scope clear           - скинути фокус (звітувати про ВСІ відстежувані репо)
+        """
+        args = arg.strip().split(maxsplit=1)
+        scope = get_report_scope()
+
+        if not args:
+            conn = get_connection()
+            try:
+                cursor = conn.cursor()
+                cursor.execute("SELECT repo_name FROM tracked_repos ORDER BY repo_name")
+                all_repos = [row["repo_name"] for row in cursor.fetchall()]
+            finally:
+                conn.close()
+
+            print(f"\n{C.CYAN}[SCOPE] Фокус звітів:{C.RESET}")
+            if scope:
+                for r in scope:
+                    print(f" - {C.GREEN}{r}{C.RESET}")
+            else:
+                print(
+                    f" {C.DIM}(не встановлено — звіти включають усі відстежувані репо){C.RESET}"
+                )
+
+            print(
+                f"\n{C.CYAN}[SCOPE] Усі відстежувані репозиторії ({len(all_repos)}):{C.RESET}"
+            )
+            for r in all_repos:
+                marker = (
+                    f"{C.GREEN}[x]{C.RESET}" if r in scope else f"{C.DIM}[ ]{C.RESET}"
+                )
+                print(f" {marker} {r}")
+            return
+
+        action = args[0].lower()
+
+        if action == "clear":
+            set_report_scope([])
+            print(
+                f"\n{C.GREEN}[SCOPE] Фокус скинуто. Звіти знову включають усі репозиторії.{C.RESET}"
+            )
+            return
+
+        if action in ("add", "remove"):
+            if len(args) < 2:
+                print(f"{C.RED}[ERROR] Формат: scope {action} <власник/репо>{C.RESET}")
+                return
+            repo_name = args[1].strip()
+
+            if action == "add":
+                if repo_name in scope:
+                    print(f"{C.YELLOW}[SCOPE] {repo_name} вже у фокусі.{C.RESET}")
+                    return
+                scope.append(repo_name)
+                set_report_scope(scope)
+                print(f"\n{C.GREEN}[SCOPE] Додано у фокус: {repo_name}{C.RESET}")
+            else:
+                if repo_name not in scope:
+                    print(f"{C.YELLOW}[SCOPE] {repo_name} не було у фокусі.{C.RESET}")
+                    return
+                scope.remove(repo_name)
+                set_report_scope(scope)
+                print(f"\n{C.GREEN}[SCOPE] Прибрано з фокусу: {repo_name}{C.RESET}")
+            return
+
+        print(
+            f"{C.RED}[ERROR] Невідома дія. Використовуйте: scope | scope add <репо> | scope remove <репо> | scope clear{C.RESET}"
+        )
 
     def do_export(self, arg):
         """Експортувати повний Markdown-звіт. Використання: export"""

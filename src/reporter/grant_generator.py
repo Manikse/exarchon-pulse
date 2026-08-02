@@ -2,7 +2,7 @@ import os
 import re
 import logging
 from datetime import datetime
-from src.core.database import get_connection
+from src.core.database import get_connection, get_report_scope
 
 logger = logging.getLogger("PulseCore.Reporter")
 
@@ -62,28 +62,46 @@ class ReportGenerator:
         try:
             cursor = conn.cursor()
 
+            scope = get_report_scope()
+            if scope:
+                placeholders = ",".join("?" for _ in scope)
+                scope_where = f"WHERE repo_name IN ({placeholders})"
+                scope_where_and = f"AND repo_name IN ({placeholders})"
+                scope_params = list(scope)
+            else:
+                scope_where = ""
+                scope_where_and = ""
+                scope_params = []
+
             # 1. Агрегована статистика
             cursor.execute(
-                "SELECT COUNT(*) as events, SUM(commits_count) as total_commits FROM github_events"
+                f"SELECT COUNT(*) as events, SUM(commits_count) as total_commits FROM github_events {scope_where}",
+                scope_params,
             )
             stats = cursor.fetchone()
             total_events = stats["events"] or 0
             total_commits = stats["total_commits"] or 0
 
             # 2. Унікальні репозиторії
-            cursor.execute("SELECT DISTINCT repo_name FROM github_events")
+            cursor.execute(
+                f"SELECT DISTINCT repo_name FROM github_events {scope_where}",
+                scope_params,
+            )
             repos = [row["repo_name"] for row in cursor.fetchall()]
 
             # 3. Останні ключові досягнення
-            cursor.execute("""
+            cursor.execute(
+                f"""
                 SELECT repo_name, summary, created_at 
                 FROM github_events 
-                WHERE event_type = 'PushEvent' 
+                WHERE event_type = 'PushEvent' {scope_where_and}
                 ORDER BY created_at DESC LIMIT 50
-            """)
+            """,
+                scope_params,
+            )
             recent_pushes = cursor.fetchall()
 
-            # 4. Активність у локальних нотатках
+            # 4. Активність у локальних нотатках (не прив'язана до repo_name, фокус не застосовується)
             cursor.execute(
                 "SELECT file_path, status, last_modified FROM notes_updates ORDER BY last_modified DESC LIMIT 10"
             )
@@ -100,7 +118,10 @@ class ReportGenerator:
 
         md_lines = []
         md_lines.append("# EXARCHON-PULSE: Executive Summary")
-        md_lines.append(f"**Date Generated:** {date_str}\n")
+        md_lines.append(f"**Date Generated:** {date_str}")
+        md_lines.append(
+            f"**Report Scope:** {', '.join(scope) if scope else 'All tracked repositories'}\n"
+        )
 
         md_lines.append("## 📊 High-Level Metrics")
         md_lines.append(f"- **Total GitHub Events Tracked:** {total_events}")
