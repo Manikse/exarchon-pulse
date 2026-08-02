@@ -4,6 +4,7 @@ import threading
 import logging
 import cmd
 import yaml
+import difflib
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -424,6 +425,37 @@ class PulseConsole(cmd.Cmd):
                 if repo_name in scope:
                     print(f"{C.YELLOW}[SCOPE] {repo_name} вже у фокусі.{C.RESET}")
                     return
+
+                conn = get_connection()
+                try:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT repo_name FROM tracked_repos")
+                    tracked = [row["repo_name"] for row in cursor.fetchall()]
+                finally:
+                    conn.close()
+
+                if repo_name not in tracked:
+                    print(
+                        f"\n{C.RED}[ERROR] '{repo_name}' немає серед відстежуваних репозиторіїв.{C.RESET}"
+                    )
+                    close = difflib.get_close_matches(
+                        repo_name, tracked, n=3, cutoff=0.5
+                    )
+                    if close:
+                        print(f"{C.DIM}Можливо, ти мав на увазі:{C.RESET}")
+                        for c in close:
+                            print(f"  {C.YELLOW}{c}{C.RESET}")
+                    else:
+                        print(
+                            f"{C.DIM}Якщо це приватний репозиторій — автовиявлення його не "
+                            f"бачить: /users/{{user}}/repos повертає лише публічні репо, "
+                            f"незалежно від токена.{C.RESET}"
+                        )
+                    print(
+                        f"{C.DIM}Повний список відстежуваних репо: команда 'scope' без аргументів.{C.RESET}"
+                    )
+                    return
+
                 scope.append(repo_name)
                 set_report_scope(scope)
                 print(f"\n{C.GREEN}[SCOPE] Додано у фокус: {repo_name}{C.RESET}")
