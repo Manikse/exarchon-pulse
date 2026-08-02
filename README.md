@@ -84,7 +84,7 @@ REPO_PATH="."
 ### 3. Run the Engine
 python main.py
 
-Повний довідник команд консолі (`report`, `export`, `scope`, `diagnostics`, тощо) — [/COMMANDS.md](COMMANDS.md).
+Повний довідник команд консолі (`report`, `export`, `scope`, `diagnostics`, тощо) — [COMMANDS.md](COMMANDS.md).
 
 ---
 
