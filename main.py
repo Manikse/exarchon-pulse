@@ -56,6 +56,7 @@ from src.core.database import (
     get_report_scope,
     set_report_scope,
 )
+from src.core.period import resolve_period, InvalidPeriodError
 from src.core.bus import bus
 
 logging.basicConfig(
@@ -229,30 +230,51 @@ class PulseConsole(cmd.Cmd):
         pass
 
     def do_report(self, arg):
-        """Згенерувати аналітичний звіт. Використання: report [day|week|month|all]"""
-        args = arg.strip().lower()
-        valid_args = {"day": 1, "week": 7, "month": 30}
+        """
+        Згенерувати аналітичний звіт.
+        Використання: report [day|week|month|all] [дата]
+          report                       - за весь час
+          report day                   - за останні 24 години
+          report day 2026-08-01        - за конкретний день
+          report week                  - за останні 7 днів
+          report week 2026-08-01       - за тиждень, що містить цю дату
+          report month                 - за останні 30 днів
+          report month 2026-08         - за конкретний місяць
+        """
+        parts = arg.strip().split()
+        if not parts:
+            period_type, date_arg = "all", None
+        else:
+            period_type, date_arg = (
+                parts[0].lower(),
+                (parts[1] if len(parts) > 1 else None),
+            )
 
-        from datetime import datetime, timedelta
+        if period_type not in ("day", "week", "month", "all"):
+            print(
+                f"\n{C.RED}[ERROR] Невідомий період. Використовуйте: report [day|week|month|all] [дата]{C.RESET}"
+            )
+            return
+
+        try:
+            start, end, period_name = resolve_period(period_type, date_arg)
+        except InvalidPeriodError as e:
+            print(f"\n{C.RED}[ERROR] {e}{C.RESET}")
+            return
 
         conditions = []
         params = []
-        period_name = "За весь час"
         limit = 10  # Дефолтний ліміт для 'all', щоб не переповнити консоль
 
-        if args in valid_args:
-            days = valid_args[args]
-            cutoff = datetime.utcnow() - timedelta(days=days)
-            cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
-            conditions.append("created_at >= ?")
-            params.append(cutoff_str)
-            period_name = f"За останні {days} днів"
-            limit = 50  # Розширений ліміт для конкретних часових зрізів
-        elif args and args != "all":
-            print(
-                f"\n{C.RED}[ERROR] Невідомий період. Використовуйте: report [day|week|month|all]{C.RESET}"
+        if start is not None:
+            conditions.append("created_at >= ? AND created_at < ?")
+            params.extend(
+                [
+                    start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                ]
             )
-            return
+            limit = 50  # Розширений ліміт для конкретних часових зрізів
 
         scope = get_report_scope()
         if scope:
@@ -419,10 +441,42 @@ class PulseConsole(cmd.Cmd):
         )
 
     def do_export(self, arg):
-        """Експортувати повний Markdown-звіт. Використання: export"""
+        """
+        Експортувати повний Markdown-звіт.
+        Використання: export [day|week|month|all] [дата]
+          export                       - за весь час (як і раніше, за замовчуванням)
+          export day 2026-08-01        - за конкретний день
+          export week 2026-08-01       - за тиждень, що містить цю дату
+          export month 2026-08         - за конкретний місяць
+        """
+        parts = arg.strip().split()
+        if not parts:
+            period_type, date_arg = "all", None
+        else:
+            period_type, date_arg = (
+                parts[0].lower(),
+                (parts[1] if len(parts) > 1 else None),
+            )
+
+        if period_type not in ("day", "week", "month", "all"):
+            print(
+                f"\n{C.RED}[ERROR] Невідомий період. Використовуйте: export [day|week|month|all] [дата]{C.RESET}"
+            )
+            return
+
+        try:
+            resolve_period(
+                period_type, date_arg
+            )  # валідація формату дати до звернення в БД
+        except InvalidPeriodError as e:
+            print(f"\n{C.RED}[ERROR] {e}{C.RESET}")
+            return
+
         print(f"\n{C.YELLOW}[REPORT]{C.RESET} Генерація розширеного Markdown-звіту...")
         generator = ReportGenerator()
-        filepath = generator.generate_markdown_report()
+        filepath = generator.generate_markdown_report(
+            period_type=period_type, date_arg=date_arg
+        )
 
         if filepath:
             print(

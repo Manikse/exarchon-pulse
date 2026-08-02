@@ -3,6 +3,7 @@ import re
 import logging
 from datetime import datetime
 from src.core.database import get_connection, get_report_scope
+from src.core.period import resolve_period
 
 logger = logging.getLogger("PulseCore.Reporter")
 
@@ -56,27 +57,47 @@ class ReportGenerator:
 
         return percentages
 
-    def generate_markdown_report(self) -> str:
-        """Формує звіт, звертаючись до БД, та зберігає його у файл. Повертає шлях до файлу."""
+    def generate_markdown_report(
+        self, period_type: str = "all", date_arg: str = None
+    ) -> str:
+        """
+        Формує звіт, звертаючись до БД, та зберігає його у файл. Повертає шлях до файлу.
+
+        period_type: "day" | "week" | "month" | "all" (як у resolve_period)
+        date_arg: конкретна дата/тиждень/місяць для періоду, або None для
+                  рухомого періоду ("останні N") чи всього часу.
+        """
+        start, end, period_label = resolve_period(period_type, date_arg)
+
         conn = get_connection()
         try:
             cursor = conn.cursor()
 
+            conditions = []
+            params = []
+
+            if start is not None:
+                conditions.append("created_at >= ? AND created_at < ?")
+                params.extend(
+                    [
+                        start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    ]
+                )
+
             scope = get_report_scope()
             if scope:
                 placeholders = ",".join("?" for _ in scope)
-                scope_where = f"WHERE repo_name IN ({placeholders})"
-                scope_where_and = f"AND repo_name IN ({placeholders})"
-                scope_params = list(scope)
-            else:
-                scope_where = ""
-                scope_where_and = ""
-                scope_params = []
+                conditions.append(f"repo_name IN ({placeholders})")
+                params.extend(scope)
+
+            where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+            where_clause_and = ("AND " + " AND ".join(conditions)) if conditions else ""
 
             # 1. Агрегована статистика
             cursor.execute(
-                f"SELECT COUNT(*) as events, SUM(commits_count) as total_commits FROM github_events {scope_where}",
-                scope_params,
+                f"SELECT COUNT(*) as events, SUM(commits_count) as total_commits FROM github_events {where_clause}",
+                params,
             )
             stats = cursor.fetchone()
             total_events = stats["events"] or 0
@@ -84,8 +105,8 @@ class ReportGenerator:
 
             # 2. Унікальні репозиторії
             cursor.execute(
-                f"SELECT DISTINCT repo_name FROM github_events {scope_where}",
-                scope_params,
+                f"SELECT DISTINCT repo_name FROM github_events {where_clause}",
+                params,
             )
             repos = [row["repo_name"] for row in cursor.fetchall()]
 
@@ -94,17 +115,29 @@ class ReportGenerator:
                 f"""
                 SELECT repo_name, summary, created_at 
                 FROM github_events 
-                WHERE event_type = 'PushEvent' {scope_where_and}
+                WHERE event_type = 'PushEvent' {where_clause_and}
                 ORDER BY created_at DESC LIMIT 50
             """,
-                scope_params,
+                params,
             )
             recent_pushes = cursor.fetchall()
 
-            # 4. Активність у локальних нотатках (не прив'язана до repo_name, фокус не застосовується)
-            cursor.execute(
-                "SELECT file_path, status, last_modified FROM notes_updates ORDER BY last_modified DESC LIMIT 10"
-            )
+            # 4. Активність у локальних нотатках. Своя часова шкала (unix timestamp,
+            # не ISO-рядок як у github_events), тому період рахуємо окремо.
+            # Фокус по репозиторіях НЕ застосовується — нотатки не прив'язані до repo_name.
+            if start is not None:
+                cursor.execute(
+                    """
+                    SELECT file_path, status, last_modified FROM notes_updates
+                    WHERE last_modified >= ? AND last_modified < ?
+                    ORDER BY last_modified DESC LIMIT 10
+                    """,
+                    [start.timestamp(), end.timestamp()],
+                )
+            else:
+                cursor.execute(
+                    "SELECT file_path, status, last_modified FROM notes_updates ORDER BY last_modified DESC LIMIT 10"
+                )
             recent_notes = cursor.fetchall()
 
         except Exception as e:
@@ -119,6 +152,7 @@ class ReportGenerator:
         md_lines = []
         md_lines.append("# EXARCHON-PULSE: Executive Summary")
         md_lines.append(f"**Date Generated:** {date_str}")
+        md_lines.append(f"**Period:** {period_label}")
         md_lines.append(
             f"**Report Scope:** {', '.join(scope) if scope else 'All tracked repositories'}\n"
         )
@@ -135,7 +169,7 @@ class ReportGenerator:
             md_lines.append("\n")
 
         effort_dist = self._calculate_effort_distribution(recent_pushes)
-        md_lines.append("## 🏷 Effort Distribution (Labels)")
+        md_lines.append("## Effort Distribution (Labels)")
         if effort_dist:
             for cat, pct in effort_dist.items():
                 md_lines.append(f"- **{cat.capitalize()}**: {pct:.1f}%")
@@ -143,7 +177,7 @@ class ReportGenerator:
             md_lines.append("- Not enough data for categorization.")
         md_lines.append("\n")
 
-        md_lines.append("## 🛠 Code & Architecture Updates")
+        md_lines.append("## Code & Architecture Updates")
         if recent_pushes:
             # Обмежуємо вивід до 15 останніх для зручності читання
             for push in recent_pushes[:15]:
